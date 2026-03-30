@@ -100,7 +100,6 @@ return fallback;
 
 function getComplexityLabel(patient) {
 const score = getComplexityScore(patient);
-
 if (score >= 8) return "Critique";
 if (score >= 5) return "Complexe";
 if (score >= 3) return "Surveillance";
@@ -348,6 +347,91 @@ return { color: "amber", label: "Vigilance" };
 return { color: "green", label: "Stable" };
 }
 
+function computeMean(values) {
+if (!values.length) return 0;
+return values.reduce((sum, n) => sum + n, 0) / values.length;
+}
+
+function computeMedian(values) {
+if (!values.length) return 0;
+const sorted = [...values].sort((a, b) => a - b);
+const mid = Math.floor(sorted.length / 2);
+return sorted.length % 2 !== 0
+? sorted[mid]
+: (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function computeDMSMetrics(patients) {
+const los = safeArray(patients)
+.map(getLengthOfStay)
+.filter((n) => Number.isFinite(n));
+
+return {
+mean: computeMean(los).toFixed(1),
+median: computeMedian(los).toFixed(1),
+};
+}
+
+function getMovementCount(patient) {
+return safeArray(patient?.mouvements).length;
+}
+
+function isUnstablePath(patient) {
+return getMovementCount(patient) >= 3;
+}
+
+function isStagnation(patient) {
+return getLengthOfStay(patient) >= 10 && !isMedicalReady(patient);
+}
+
+function isDirectionPriorityPatient(patient, incidents = []) {
+return (
+isComplexPatient(patient) ||
+getLengthOfStay(patient) >= 10 ||
+(isMedicalReady(patient) && getSolutionLabel(patient) === "Aucune") ||
+Boolean(
+getBlockageLabel(patient) && getBlockageLabel(patient) !== "Non défini"
+) ||
+isVulnerable(patient) ||
+Boolean(getCurrentIncident(patient, incidents)) ||
+hasPreviousEscapeIncident(patient, incidents)
+);
+}
+
+function getPatientPriorityScore(patient, incidents = []) {
+let score = 0;
+const complexity = getComplexityScore(patient);
+const los = getLengthOfStay(patient);
+
+score += complexity * 10;
+if (getBlockageLabel(patient) !== "Non défini") score += 25;
+if (isMedicalReady(patient) && getSolutionLabel(patient) === "Aucune") {
+score += 25;
+}
+if (isVulnerable(patient)) score += 15;
+if (los >= 10) score += 20;
+if (getAvoidableDays(patient) > 0) score += getAvoidableDays(patient) * 5;
+if (Boolean(getCurrentIncident(patient, incidents))) score += 100;
+if (hasPreviousEscapeIncident(patient, incidents)) score += 20;
+if (isUnstablePath(patient)) score += 10;
+
+return score;
+}
+
+function getComplexityBadgeColor(patient) {
+const label = getComplexityLabel(patient);
+if (label === "Critique") return "red";
+if (label === "Complexe") return "amber";
+if (label === "Surveillance") return "blue";
+return "neutral";
+}
+
+function getDMSColor(days) {
+if (days >= 12) return "#b42318";
+if (days >= 10) return "#a16207";
+return "#17376a";
+}
+
 function statusBadgeStyle(kind = "neutral") {
 const styles = {
 neutral: {
@@ -479,91 +563,6 @@ return {
 background: "#fff",
 border: "1px solid #e6ebf2",
 };
-}
-
-function computeMean(values) {
-if (!values.length) return 0;
-return values.reduce((sum, n) => sum + n, 0) / values.length;
-}
-
-function computeMedian(values) {
-if (!values.length) return 0;
-const sorted = [...values].sort((a, b) => a - b);
-const mid = Math.floor(sorted.length / 2);
-return sorted.length % 2 !== 0
-? sorted[mid]
-: (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-function computeDMSMetrics(patients) {
-const los = safeArray(patients)
-.map(getLengthOfStay)
-.filter((n) => Number.isFinite(n));
-
-return {
-mean: computeMean(los).toFixed(1),
-median: computeMedian(los).toFixed(1),
-};
-}
-
-function getMovementCount(patient) {
-return safeArray(patient?.mouvements).length;
-}
-
-function isUnstablePath(patient) {
-return getMovementCount(patient) >= 3;
-}
-
-function isStagnation(patient) {
-return getLengthOfStay(patient) >= 10 && !isMedicalReady(patient);
-}
-
-function isDirectionPriorityPatient(patient, incidents = []) {
-return (
-isComplexPatient(patient) ||
-getLengthOfStay(patient) >= 10 ||
-(isMedicalReady(patient) && getSolutionLabel(patient) === "Aucune") ||
-Boolean(
-getBlockageLabel(patient) && getBlockageLabel(patient) !== "Non défini"
-) ||
-isVulnerable(patient) ||
-Boolean(getCurrentIncident(patient, incidents)) ||
-hasPreviousEscapeIncident(patient, incidents)
-);
-}
-
-function getPatientPriorityScore(patient, incidents = []) {
-let score = 0;
-const complexity = getComplexityScore(patient);
-const los = getLengthOfStay(patient);
-
-score += complexity * 10;
-if (getBlockageLabel(patient) !== "Non défini") score += 25;
-if (isMedicalReady(patient) && getSolutionLabel(patient) === "Aucune") {
-score += 25;
-}
-if (isVulnerable(patient)) score += 15;
-if (los >= 10) score += 20;
-if (getAvoidableDays(patient) > 0) score += getAvoidableDays(patient) * 5;
-if (Boolean(getCurrentIncident(patient, incidents))) score += 100;
-if (hasPreviousEscapeIncident(patient, incidents)) score += 20;
-if (isUnstablePath(patient)) score += 10;
-
-return score;
-}
-
-function getComplexityBadgeColor(patient) {
-const label = getComplexityLabel(patient);
-if (label === "Critique") return "red";
-if (label === "Complexe") return "amber";
-if (label === "Surveillance" || label === "Élevée") return "blue";
-return "neutral";
-}
-
-function getDMSColor(days) {
-if (days >= 12) return "#b42318";
-if (days >= 10) return "#a16207";
-return "#17376a";
 }
 
 export default function Dashboard() {
@@ -761,7 +760,6 @@ Boolean(getCurrentIncident(patient, incidents))
 };
 
 const actionChips = [
-{ key: "new", label: "Nouveaux", count: totals.newPatients, color: "blue" },
 { key: "complex", label: "Complexes", count: totals.complex, color: "amber" },
 { key: "recoverable", label: "Récupérables", count: totals.recoverable, color: "green" },
 { key: "target", label: "Date cible", count: totals.targetDefined, color: "blue" },
@@ -1114,7 +1112,6 @@ onClick={() => setActiveFilter(kpi.key)}
 style={kpiCard(activeFilter === kpi.key, kpi.strong, kpi.kind)}
 >
 <span style={kpiEyebrow}>{kpi.label}</span>
-
 <strong
 style={{
 fontSize: valueFontSize,
@@ -1129,7 +1126,6 @@ textOverflow: "ellipsis",
 >
 {kpi.value}
 </strong>
-
 <span style={kpiDetail}>{kpi.detail}</span>
 </button>
 );
@@ -1423,18 +1419,6 @@ Antécédent fugue
 </span>
 ) : null}
 
-{isUnstablePath(patient) ? (
-<span style={statusBadgeStyle("amber")}>
-Instable
-</span>
-) : null}
-
-{isStagnation(patient) ? (
-<span style={statusBadgeStyle("red")}>
-Stagnation
-</span>
-) : null}
-
 {los >= 10 ? (
 <span style={statusBadgeStyle("amber")}>
 DMS longue
@@ -1575,8 +1559,7 @@ flexWrap: "wrap",
 items.filter((p) =>
 Boolean(getCurrentIncident(p, incidents))
 ).length
-}{" "}
-incident(s)
+} incident(s)
 </span>
 </div>
 </div>
@@ -1662,24 +1645,7 @@ Antécédent
 </span>
 ) : null}
 
-{isUnstablePath(patient) ? (
-<span style={statusBadgeStyle("amber")}>
-Instable
-</span>
-) : null}
-
-{isStagnation(patient) ? (
-<span style={statusBadgeStyle("red")}>
-Stagnation
-</span>
-) : null}
-
-{los >= 10 ? (
-<span style={statusBadgeStyle("amber")}>
-DMS longue
-</span>
-) : null}
-
+{vulnerable ? (
 <button
 type="button"
 onClick={() =>
@@ -1688,17 +1654,35 @@ vulnPopoverId === patient.id ? null : patient.id
 )
 }
 style={{
-...statusBadgeStyle(
-vulnerable ? "purple" : "neutral"
-),
+...statusBadgeStyle("purple"),
 cursor: "pointer",
-background: vulnerable ? "#f5f3ff" : "#fafafc",
 }}
 >
-{vulnerable
-? `Vulnérable (${vulnerabilityCount(patient)})`
-: "Vulnérable"}
+Vulnérable ({vulnerabilityCount(patient)})
 </button>
+) : (
+<button
+type="button"
+onClick={() =>
+setVulnPopoverId(
+vulnPopoverId === patient.id ? null : patient.id
+)
+}
+style={{
+...statusBadgeStyle("neutral"),
+cursor: "pointer",
+background: "#fafafc",
+}}
+>
+Vulnérable
+</button>
+)}
+
+{los >= 10 ? (
+<span style={statusBadgeStyle("amber")}>
+DMS longue
+</span>
+) : null}
 </div>
 
 <div style={{ fontSize: 12, color: "#475569" }}>

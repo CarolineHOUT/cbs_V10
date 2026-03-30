@@ -7,6 +7,7 @@ import AseLettreLiaisonView from "./ase/AseLettreLiaisonView";
 import AsePreparationInstanceView from "./ase/AsePreparationInstanceView";
 import CelluleCriseView from "./CelluleCriseView";
 import { PatientSimulationProvider } from "./context/PatientSimulationContext";
+import IncidentView from "./IncidentViewTemp";
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <Route path="/patient/:id" element={<PatientView />} />
           <Route path="/copilote/:id" element={<CopiloteView />} />
           <Route path="/crise" element={<CelluleCriseView />} />
+          <Route path="/incident/:id" element={<IncidentView />} />
 
           {/* 🔥 AJOUT ASE */}
           <Route path="/ase/lettre-liaison" element={<AseLettreLiaisonView />} />

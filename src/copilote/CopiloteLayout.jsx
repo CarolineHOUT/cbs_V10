@@ -16,20 +16,14 @@ const FORM_LINKS = {
 };
 
 const MENU_ITEMS = [
-  { id: "situation", label: "Situation" },
-  { id: "priorites", label: "À faire maintenant" },
-  { id: "coordination", label: "Coordination" },
-  { id: "actions", label: "Actions" },
-  { id: "activite", label: "Activité" },
-  { id: "orientation", label: "Orientation" },
-  { id: "ressources", label: "Ressources" },
-  { id: "formulaires", label: "Formulaires utiles" },
-  { id: "hdj", label: "Sortie sécurisée / HDJ" },
-  { id: "suivi", label: "Suivi demandes" },
-  { id: "timeline", label: "Timeline" },
-  { id: "synthese", label: "Synthèse" },
+{ id: "copilot", label: "Copilote" },
+{ id: "actions", label: "Actions prioritaires" },
+{ id: "orientation", label: "Orientation" },
+{ id: "demandes", label: "Demandes" },
+{ id: "ressources", label: "Ressources" },
+{ id: "activite", label: "Activité" },
+{ id: "synthese", label: "Synthèse" },
 ];
-
 const CHIP_TO_SECTION = {
   "Date cible de sortie": "situation",
   "Date cible": "situation",
@@ -732,6 +726,192 @@ function buildContextualForms(keywords) {
 ========================= */
 
 const styles = {
+  copilotActions: {
+display: "grid",
+gap: 10,
+marginTop: 8,
+},
+copilotClickableCard: {
+cursor: "pointer",
+textAlign: "left",
+border: "1px solid #dbe4f0",
+},
+
+copilotLinkText: {
+marginTop: 8,
+fontSize: 12,
+fontWeight: 700,
+color: "#1e3a8a",
+},
+copilotClickableCardHover: {
+background: "#f8fbff",
+},
+identityBadge: {
+display: "inline-flex",
+alignItems: "center",
+width: "fit-content",
+background: "#fff1f2",
+border: "1px solid #fecdd3",
+color: "#9f1239",
+borderRadius: 999,
+padding: "4px 10px",
+fontSize: 12,
+fontWeight: 700,
+},
+copilotPatientDetails: {
+fontSize: 13,
+color: "#6b7280",
+marginTop: 4,
+},
+copilotHeroCard: {
+background: "#ffffff",
+border: "1px solid #dbe4f0",
+borderRadius: 20,
+padding: 22,
+display: "grid",
+gap: 16,
+boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+},
+
+copilotTopRow: {
+display: "flex",
+justifyContent: "space-between",
+gap: 16,
+alignItems: "flex-start",
+flexWrap: "wrap",
+},
+
+copilotEyebrow: {
+fontSize: 13,
+fontWeight: 700,
+color: "#1e3a8a",
+marginBottom: 4,
+},
+
+copilotPatientName: {
+fontSize: 30,
+fontWeight: 800,
+color: "#0f172a",
+lineHeight: 1.1,
+},
+
+copilotPatientMeta: {
+fontSize: 14,
+color: "#64748b",
+marginTop: 6,
+},
+
+copilotBadges: {
+display: "flex",
+gap: 8,
+flexWrap: "wrap",
+alignItems: "center",
+},
+
+copilotStatsGrid: {
+display: "grid",
+gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+gap: 12,
+},
+
+copilotStatBox: {
+background: "#f8fafc",
+border: "1px solid #e2e8f0",
+borderRadius: 14,
+padding: 14,
+display: "grid",
+gap: 6,
+},
+
+copilotStatLabel: {
+fontSize: 12,
+color: "#64748b",
+fontWeight: 700,
+textTransform: "uppercase",
+letterSpacing: 0.3,
+},
+
+copilotStatValue: {
+fontSize: 26,
+fontWeight: 800,
+color: "#0f172a",
+},
+
+copilotMiniText: {
+fontSize: 15,
+fontWeight: 700,
+color: "#0f172a",
+lineHeight: 1.3,
+},
+
+copilotAlertBox: {
+background: "#eff6ff",
+border: "1px solid #bfdbfe",
+color: "#1e3a8a",
+borderRadius: 14,
+padding: 14,
+fontWeight: 700,
+},
+
+copilotButtonsRow: {
+display: "flex",
+gap: 10,
+flexWrap: "wrap",
+},
+
+copilotReco: {
+display: "grid",
+gap: 10,
+marginTop: 8,
+},
+
+copilotRecoButton: {
+border: "none",
+padding: "12px 14px",
+borderRadius: 12,
+fontWeight: 700,
+textAlign: "left",
+cursor: "pointer",
+},
+
+copilotRecoButtonRed: {
+background: "#fee2e2",
+color: "#991b1b",
+},
+
+copilotRecoButtonAmber: {
+background: "#fef3c7",
+color: "#92400e",
+},
+
+copilotRecoButtonGreen: {
+background: "#dcfce7",
+color: "#166534",
+},
+copilotActionTitle: {
+fontSize: 13,
+fontWeight: 600,
+color: "#64748b",
+},
+
+copilotActionButton: {
+background: "#dc2626",
+color: "#fff",
+border: "none",
+padding: "10px 12px",
+borderRadius: 10,
+fontWeight: 600,
+cursor: "pointer",
+},
+
+copilotActionButtonSecondary: {
+background: "#f1f5f9",
+border: "1px solid #e2e8f0",
+padding: "10px 12px",
+borderRadius: 10,
+fontWeight: 600,
+cursor: "pointer",
+},
   page: { padding: 16 },
   shell: { display: "grid", gridTemplateColumns: "260px 1fr", gap: 16 },
   sidebar: {
@@ -921,12 +1101,30 @@ const styles = {
   },
 };
 
+
 /* =========================
    COMPOSANT PRINCIPAL
 ========================= */
 
 export default function CopiloteLayout({ patientId, onOpenPatientView, patientViewUrl }) {
-  const { getPatientById, patientsSimulated } = usePatientSimulation();
+const [activeSection, setActiveSection] = useState("copilot")
+  function formatActorName(author = "") {
+const parts = author.split(" ");
+
+if (parts.length < 2) return author;
+
+const role = parts[0];
+const firstName = parts[1];
+const lastInitial = parts[2]?.charAt(0) || "";
+
+return `${role} ${firstName} ${lastInitial}.`;
+}
+
+const {
+getPatientById,
+patientsSimulated,
+syncCopilotToPatient
+} = usePatientSimulation();
 
   const patient = useMemo(() => {
     if (typeof getPatientById === "function" && patientId) {
@@ -935,7 +1133,7 @@ export default function CopiloteLayout({ patientId, onOpenPatientView, patientVi
     return patientsSimulated?.[0] || null;
   }, [getPatientById, patientId, patientsSimulated]);
 
-  const [activeSection, setActiveSection] = useState("situation");
+
   const [strategyPlan, setStrategyPlan] = useState({
     main: "",
     alternative1: "",
@@ -1782,1100 +1980,618 @@ export default function CopiloteLayout({ patientId, onOpenPatientView, patientVi
   if (!patient) {
     return <div style={{ padding: 16 }}>Aucun patient sélectionné.</div>;
   }
+const STATUS_PRIORITY = [
+"À faire",
+"En cours",
+"En attente externe",
+"Bloqué"
+];
+
+const topPriority =
+STATUS_PRIORITY.map(status =>
+actions.find(a => a.status === status)
+).find(Boolean) || null;
+
+const mainAlert = useMemo(() => {
+if (topPriority?.label) return topPriority.label;
+if (alerts?.[0]?.label) return alerts[0].label;
+return "Aucune alerte prioritaire.";
+}, [topPriority, alerts]);
+const activitesATraiter = exchanges.filter(
+(e) => !e.read || e.status === "À traiter" || e.type === "Urgent"
+);
+
+const activitesHistorique = exchanges.filter(
+(e) => e.read && e.status !== "À traiter" && e.type !== "Urgent"
+);
+
+function getActivityBadge(type) {
+if (type === "Urgent") return "red";
+if (type === "Famille") return "purple";
+if (type === "Action") return "amber";
+return "blue";
+}
+const simplifiedStatus = useMemo(() => {
+if (isDischarged) return "Sortie réalisée";
+if (isPlanned) return "Sortie planifiée";
+if (actualSolutionFound) return "Solution identifiée";
+return quickSummary.situation || "À sécuriser";
+}, [isDischarged, isPlanned, actualSolutionFound, quickSummary.situation]);
+const handleActionClick = (action) => {
+console.log("Action lancée :", action);
+
+// option simple : aller à la bonne section
+if (action?.section) {
+scrollToSection(setActiveSection, action.section);
+}
+};
+
+const markActionDone = (id) => {
+updateAction(patient.id, id, { status: "done" });
+};
+const recommandationCopilot = useMemo(() => {
+if (activitesATraiter.length > 0) {
+return {
+label: "Traiter les activités en attente",
+target: "activite",
+tone: "amber",
+};
+}
+
+if (actions.some((a) => a.status !== "Réalisé")) {
+return {
+label: "Avancer sur les actions en cours",
+target: "actions",
+tone: "red",
+};
+}
+
+if (lengthOfStay > DMS_THRESHOLD) {
+return {
+label: "Sécuriser la sortie rapidement",
+target: "orientation",
+tone: "red",
+};
+}
+
+return {
+label: "Situation stable à surveiller",
+target: "copilot",
+tone: "green",
+};
+}, [activitesATraiter, actions, lengthOfStay]);
 
   return (
-    <div style={styles.page}>
-      <div style={styles.shell}>
-        <aside style={styles.sidebar}>
-          <div style={styles.sidebarTitle}>Copilote de coordination</div>
-
-          {MENU_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => scrollToSection(setActiveSection, item.id)}
-              style={{
-                ...styles.sideButton,
-                ...(activeSection === item.id ? styles.sideButtonActive : {}),
-              }}
-            >
-              <span>{item.label}</span>
-              {item.id === "actions" ? (
-                <span style={tagStyle("red")}>{actions.filter((a) => a.status !== "Réalisé").length}</span>
-              ) : null}
-              {item.id === "orientation" ? (
-                <span style={tagStyle("blue")}>{categoriesState.filter((c) => c.selected || c.selectedChildren.length > 0).length}</span>
-              ) : null}
-              {item.id === "hdj" ? <span style={tagStyle("blue")}>{similarHdj.length}</span> : null}
-              {item.id === "ressources" ? <span style={tagStyle("blue")}>{visibleResources.length}</span> : null}
-              {item.id === "priorites" ? <span style={tagStyle("red")}>{currentPriorities.length}</span> : null}
-              {item.id === "activite" ? <span style={tagStyle("amber")}>{exchanges.filter((e) => !e.read).length}</span> : null}
-            </button>
-          ))}
-        </aside>
-
-        <main style={styles.main}>
-          <section style={styles.headerCard}>
-            <div style={styles.headerTop}>
-              <div>
-                <div style={styles.patientName}>
-                  {patient.nom} {patient.prenom}
-                </div>
-                <div style={styles.patientMeta}>
-                  {patient?.dateNaissance || "Date inconnue"} · {patient?.age || "—"} ans · INS {patient?.ins || "—"} · IEP {patient?.iep || "—"} · {currentLocation.service || patient?.service || "Service non renseigné"} · Chambre {currentLocation.chambre || patient?.chambre || "—"} · Lit {currentLocation.lit || patient?.lit || "—"}
-                </div>
-              </div>
-
-              <div style={styles.rowWrap}>
-                <button type="button" onClick={openPatientView} style={styles.primaryBtn}>
-                  Voir fiche patient
-                </button>
-              </div>
-
-              <div style={styles.headerBadges}>
-                <button type="button" onClick={() => scrollToSection(setActiveSection, "situation")} style={{ ...tagStyle("blue"), ...styles.clickableChip }}>
-                  {derivedStatus}
-                </button>
-                <button type="button" onClick={() => scrollToSection(setActiveSection, "orientation")} style={{ ...tagStyle("neutral"), ...styles.clickableChip }}>
-                  {currentSolution}
-                </button>
-                <button type="button" onClick={() => scrollToSection(setActiveSection, "situation")} style={{ ...tagStyle("amber"), ...styles.clickableChip }}>
-                  Date cible de sortie {targetDate ? formatShortDate(targetDate) : "non définie"}
-                </button>
-                <button type="button" onClick={() => scrollToSection(setActiveSection, "situation")} style={{ ...tagStyle("neutral"), ...styles.clickableChip }}>
-                  Séjour J+{lengthOfStay}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scrollToSection(setActiveSection, "situation")}
-                  style={{
-                    ...tagStyle(lengthOfStay > DMS_THRESHOLD ? "red" : lengthOfStay >= 10 ? "amber" : "green"),
-                    ...styles.clickableChip,
-                  }}
-                >
-                  DMS {lengthOfStay > DMS_THRESHOLD ? "dépassée" : lengthOfStay >= 10 ? "proche" : "OK"}
-                </button>
-                <button type="button" onClick={() => scrollToSection(setActiveSection, "timeline")} style={{ ...tagStyle(complexity.color), ...styles.clickableChip }}>
-                  Complexité {complexity.label}
-                </button>
-              </div>
-            </div>
-
-            <div style={styles.summaryBox}>
-              <div><strong>Situation :</strong> {quickSummary.situation}</div>
-              <div><strong>Blocage principal :</strong> {quickSummary.block}</div>
-              <div><strong>Stratégie :</strong> {quickSummary.strategy}</div>
-              <div><strong>Prochaine action :</strong> {quickSummary.nextAction}</div>
-              <div><strong>Pilotage actuel :</strong> {quickSummary.owner}</div>
-            </div>
-
-            <div style={styles.keywordWrap}>
-              {uniq(keywords).map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => scrollToSection(setActiveSection, "orientation")}
-                  style={styles.keywordChip}
-                >
-                  {k}
-                </button>
-              ))}
-            </div>
-
-            {alerts.length > 0 ? (
-              <div style={styles.keywordWrap}>
-                {alerts.map((a, i) => (
-                  <button
-                    key={`${a.label}-${i}`}
-                    type="button"
-                    onClick={() => scrollToSection(setActiveSection, inferSectionFromAlert(a.label))}
-                    style={{
-                      ...tagStyle(a.type === "danger" ? "red" : a.type === "warning" ? "amber" : "blue"),
-                      ...styles.clickableChip,
-                    }}
-                  >
-                    {a.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            <div style={styles.progressOuter}>
-              <div style={{ ...styles.progressInner, width: `${timelineState.percent}%` }} />
-            </div>
-          </section>
-
-          <section id="section-priorites" style={{ display: activeSection === "priorites" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardTitle}>À faire maintenant</div>
-            {currentPriorities.length === 0 ? (
-              <div style={styles.smallNote}>Aucune priorité immédiate.</div>
-            ) : (
-              <div style={styles.stack}>
-                {currentPriorities.map((item, idx) => (
-                  <button
-                    key={`${item.label}-${idx}`}
-                    type="button"
-                    onClick={() => scrollToSection(setActiveSection, item.section || inferSectionFromAlert(item.label))}
-                    style={{
-                      ...styles.formRow,
-                      cursor: "pointer",
-                      textAlign: "left",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span>{item.label}</span>
-                    <span style={tagStyle(item.type === "danger" ? "red" : "amber")}>
-                      {item.type === "danger" ? "Urgent" : "À faire"}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section id="section-situation" style={{ display: activeSection === "situation" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardTitle}>Situation</div>
-
-            <div style={styles.timelineRow}>
-              {timelineState.steps.map((step, i) => (
-                <button
-                  key={step.label}
-                  type="button"
-                  onClick={() => {
-                    const targetSection =
-                      step.label === "Demandes" ? "suivi" :
-                      step.label === "Coordination" ? "coordination" :
-                      step.label === "Solution" ? "orientation" :
-                      step.label === "Sortie planifiée" ? "situation" :
-                      "situation";
-                    scrollToSection(setActiveSection, targetSection);
-                  }}
-                  style={{ border: "none", background: "transparent", cursor: "pointer", ...styles.timelineItem }}
-                >
-                  <div
-                    style={{
-                      ...styles.timelineDot,
-                      background: step.done ? "#16a34a" : i === timelineState.current ? "#f59e0b" : "#d1d5db",
-                    }}
-                  />
-                  <div style={styles.timelineLabel}>{step.label}</div>
-                </button>
-              ))}
-            </div>
-
-            <div style={styles.infoGrid}>
-              <div style={styles.infoBox}>
-                <div style={styles.infoLabel}>Type de sortie</div>
-                <select value={dischargeType} onChange={(e) => setDischargeType(e.target.value)} style={styles.selectSmall}>
-                  {DISCHARGE_TYPES.map((x) => (
-                    <option key={x.value} value={x.value}>{x.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={styles.infoBox}>
-                <div style={styles.infoLabel}>Sortant médicalement</div>
-                <div style={styles.rowWrap}>
-                  <label style={styles.toggleRow}>
-                    <input
-                      type="checkbox"
-                      checked={isMedicallyReady}
-                      onChange={(e) => setIsMedicallyReady(e.target.checked)}
-                    />
-                    <span>{isMedicallyReady ? "Oui" : "Non"}</span>
-                  </label>
-                </div>
-                {isMedicallyReady ? (
-                  <input
-                    type="date"
-                    value={medicalReadyDate}
-                    onChange={(e) => setMedicalReadyDate(e.target.value)}
-                    style={styles.inputSmall}
-                  />
-                ) : null}
-              </div>
-
-              <div style={styles.infoBox}>
-                <div style={styles.infoLabel}>Date cible de sortie</div>
-                <input
-                  type="date"
-                  value={targetDate}
-                  onChange={(e) => setTargetDate(e.target.value)}
-                  style={styles.inputSmall}
-                />
-                <select
-                  value={targetDateStatus}
-                  onChange={(e) => setTargetDateStatus(e.target.value)}
-                  style={styles.selectSmall}
-                >
-                  {TARGET_STATUSES.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={styles.infoBox}>
-                <div style={styles.infoLabel}>Séjour</div>
-                <div style={styles.infoValue}>J + {lengthOfStay}</div>
-                <div style={styles.smallNote}>Seuil DMS : {DMS_THRESHOLD} jours</div>
-              </div>
-
-              <div style={styles.infoBox}>
-                <div style={styles.infoLabel}>Blocage principal</div>
-                <div style={styles.infoValue}>{patient?.blockReason || patient?.blocage || "Non renseigné"}</div>
-              </div>
-
-              <div style={styles.infoBox}>
-                <div style={styles.infoLabel}>Solution en cours</div>
-                <div style={styles.infoValue}>{currentSolution}</div>
-              </div>
-
-              <div style={styles.infoBox}>
-                <div style={styles.infoLabel}>Pilotage actuel</div>
-                <div style={styles.infoValue}>{quickSummary.owner}</div>
-              </div>
-
-              <div style={styles.infoBox}>
-                <div style={styles.infoLabel}>Localisation actuelle</div>
-                <div style={styles.infoValue}>
-                  {currentLocation.service || patient?.service || "—"} · Chambre {currentLocation.chambre || patient?.chambre || "—"} · Lit {currentLocation.lit || patient?.lit || "—"}
-                </div>
-              </div>
-
-              <div style={styles.infoBox}>
-                <div style={styles.infoLabel}>Sortie réellement faite</div>
-                <label style={styles.toggleRow}>
-                  <input type="checkbox" checked={isDischarged} onChange={(e) => setIsDischarged(e.target.checked)} />
-                  <span>{isDischarged ? "Oui" : "Non"}</span>
-                </label>
-              </div>
-            </div>
-
-            <div style={styles.rowWrap}>
-              <select
-                value={currentLocation.service}
-                onChange={(e) => updateLocation("service", e.target.value)}
-                style={styles.selectSmall}
-              >
-                <option value="">Service</option>
-                {uniq([
-                  patient?.service,
-                  ...AGENTS_BY_ROLE.medecins.map((x) => x.service),
-                  ...AGENTS_BY_ROLE.ide.map((x) => x.service),
-                  ...AGENTS_BY_ROLE.cadre.map((x) => x.service),
-                  ...AGENTS_BY_ROLE.as.map((x) => x.service),
-                ]).map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-
-              <input
-                value={currentLocation.chambre}
-                onChange={(e) => updateLocation("chambre", e.target.value)}
-                placeholder="Chambre"
-                style={styles.inputSmall}
-              />
-
-              <input
-                value={currentLocation.lit}
-                onChange={(e) => updateLocation("lit", e.target.value)}
-                placeholder="Lit"
-                style={styles.inputSmall}
-              />
-            </div>
-
-            {locationHistory.length > 0 ? (
-              <div style={styles.historyBox}>
-                <div style={styles.infoLabel}>Historique service / chambre / lit</div>
-                {locationHistory.slice(-5).reverse().map((h, i) => (
-                  <div key={`${h.changedAt}-${i}`} style={styles.smallNote}>
-                    {new Date(h.changedAt).toLocaleString()} · {h.service || "—"} · Chambre {h.chambre || "—"} · Lit {h.lit || "—"}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </section>
-
-          <section id="section-coordination" style={{ display: activeSection === "coordination" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardTitle}>Coordination</div>
-
-            <div style={styles.sectionBanner}>
-              <div style={styles.cardSubTitle}>Logique terrain</div>
-              <div style={styles.smallNote}>
-                Les agents se connectent avec leur compte. La coordination affiche donc surtout les dernières actions, les tâches en cours
-                et les reprises éventuelles, plutôt qu’une saisie manuelle des noms.
-              </div>
-            </div>
-
-            <div style={styles.grid3}>
-              {Object.entries(groupedActionDomains).map(([domain, items]) => (
-                <div key={domain} style={styles.infoBox}>
-                  <div style={styles.infoLabel}>{domain}</div>
-                  <div style={styles.infoValue}>{items.filter((x) => x.status !== "Réalisé").length} en cours / à faire</div>
-                  <div style={styles.smallNote}>
-                    Dernière action : {items[0] ? `${items[0].title} · ${formatDateTime(items[0].updatedAt)}` : "Aucune"}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={styles.historyBox}>
-              <div style={styles.infoLabel}>Dernières actions tracées</div>
-              {activityFeed.length === 0 ? (
-                <div style={styles.smallNote}>Aucune activité récente.</div>
-              ) : (
-                activityFeed.slice(0, 8).map((item) => (
-                  <div key={item.id} style={styles.smallNote}>
-                    {formatDateTime(item.date)} · {item.actor} · {item.text}
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div style={styles.historyBox}>
-              <div style={styles.infoLabel}>Reprises / relais</div>
-              {actions.filter((a) => (a.history || []).length > 1).length === 0 ? (
-                <div style={styles.smallNote}>Aucune reprise tracée pour le moment.</div>
-              ) : (
-                actions
-                  .filter((a) => (a.history || []).length > 1)
-                  .map((a) => (
-                    <div key={a.id} style={styles.smallNote}>
-                      {a.title} · reprise / mise à jour par {a.lastUpdatedBy || "Utilisateur connecté"} le {formatDateTime(a.updatedAt)}
-                    </div>
-                  ))
-              )}
-            </div>
-          </section>
-
-          <section id="section-actions" style={{ display: activeSection === "actions" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardHeader}>
-              <div style={styles.cardTitle}>Actions</div>
-              <span style={tagStyle("blue")}>Usage terrain simplifié</span>
-            </div>
-
-            <div style={styles.sectionBanner}>
-              <div style={styles.cardSubTitle}>Actions rapides</div>
-              <div style={styles.rowWrap}>
-                <button type="button" onClick={() => addActionInline({ title: "Appeler la famille", priority: "Prioritaire", actorRole: "Social" })} style={styles.secondaryBtn}>Appeler famille</button>
-                <button type="button" onClick={() => addActionInline({ title: "Relancer une ressource", priority: "Prioritaire", actorRole: "Coordination IDE" })} style={styles.secondaryBtn}>Relancer ressource</button>
-                <button type="button" onClick={() => addActionInline({ title: "Compléter un dossier", priority: "Normale", actorRole: "Médical" })} style={styles.secondaryBtn}>Compléter dossier</button>
-                <button type="button" onClick={() => addActionInline({ title: "Préparer la sortie", priority: "Urgente", actorRole: "Coordination IDE" })} style={styles.secondaryBtn}>Préparer sortie</button>
-              </div>
-            </div>
-
-            <div style={styles.grid3}>
-              <div style={styles.fieldBlock}>
-                <label style={styles.label}>Nouvelle action</label>
-                <input value={newAction.title} onChange={(e) => setNewAction((p) => ({ ...p, title: e.target.value }))} style={styles.inputSmall} placeholder="Ex : vérifier l’orientation" />
-              </div>
-              <div style={styles.fieldBlock}>
-                <label style={styles.label}>Échéance</label>
-                <input type="date" value={newAction.dueDate} onChange={(e) => setNewAction((p) => ({ ...p, dueDate: e.target.value }))} style={styles.inputSmall} />
-              </div>
-              <div style={styles.fieldBlock}>
-                <label style={styles.label}>Priorité</label>
-                <select value={newAction.priority} onChange={(e) => setNewAction((p) => ({ ...p, priority: e.target.value }))} style={styles.selectSmall}>
-                  {["Normale", "Prioritaire", "Urgente"].map((s) => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div style={styles.rowWrap}>
-              <button type="button" onClick={() => addActionInline()} style={styles.primaryBtn}>Ajouter l’action</button>
-            </div>
-
-            <div style={styles.stack}>
-              {sortedActions.map((a) => (
-                <div key={a.id} style={styles.postit}>
-                  <div style={styles.exchangeHead}>
-                    <div>
-                      <div style={styles.postitTitle}>{a.title}</div>
-                      <div style={styles.smallNote}>{a.domain || inferActionDomain(a)} · {a.priority}</div>
-                    </div>
-                    <div style={styles.rowWrap}>
-                      <span style={tagStyle(a.status === "Réalisé" ? "green" : a.status === "Bloqué" ? "red" : a.status === "En attente externe" ? "amber" : "blue")}>
-                        {a.status}
-                      </span>
-                      {isActionOverdue(a) ? <span style={tagStyle("red")}>En retard</span> : null}
-                    </div>
-                  </div>
-
-                  <div style={styles.rowWrap}>
-                    {ACTION_STATUSES.map((status) => (
-                      <button
-                        key={status}
-                        type="button"
-                        onClick={() => updateAction(a.id, { status })}
-                        style={{
-                          ...styles.actionPill,
-                          ...(a.status === status ? { border: "1px solid #17376a", background: "#eef4ff" } : {}),
-                        }}
-                      >
-                        {status}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div style={styles.rowWrap}>
-                    <button type="button" onClick={() => updateAction(a.id, { dueDate: new Date().toISOString().slice(0, 10) })} style={styles.secondaryBtn}>
-                      Aujourd’hui
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const tomorrow = new Date();
-                        tomorrow.setDate(tomorrow.getDate() + 1);
-                        updateAction(a.id, { dueDate: tomorrow.toISOString().slice(0, 10) });
-                      }}
-                      style={styles.secondaryBtn}
-                    >
-                      Demain
-                    </button>
-                    <button type="button" onClick={() => updateAction(a.id, { dueDate: targetDate || "" })} style={styles.secondaryBtn}>
-                      Date cible
-                    </button>
-                  </div>
-
-                  <div style={styles.smallNote}>
-                    Échéance : {a.dueDate ? formatShortDate(a.dueDate) : "non définie"} · Prochaine action : {a.nextStep || "—"}
-                  </div>
-
-                  {a.status === "Bloqué" ? (
-                    <select value={a.blockReason || BLOCK_REASONS[0]} onChange={(e) => updateAction(a.id, { blockReason: e.target.value })} style={styles.selectSmall}>
-                      {BLOCK_REASONS.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
-                    </select>
-                  ) : null}
-
-                  {a.doneAt ? (
-                    <div style={styles.smallNote}>
-                      ✔ {a.lastUpdatedBy || "Utilisateur connecté"} le {formatDateTime(a.doneAt)}
-                    </div>
-                  ) : (
-                    <div style={styles.smallNote}>
-                      Créée : {formatDateTime(a.createdAt)} · MAJ : {formatDateTime(a.updatedAt)} · par {a.lastUpdatedBy || "Utilisateur connecté"}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section id="section-activite" style={{ display: activeSection === "activite" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardHeader}>
-              <div style={styles.cardTitle}>Activité</div>
-              <span style={tagStyle("purple")}>Info / Famille / Urgent / Action</span>
-            </div>
-
-            <div style={styles.grid3}>
-              <div style={styles.fieldBlock}>
-                <label style={styles.label}>Type</label>
-                <div style={styles.keywordWrap}>
-                  {EXCHANGE_TYPES.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setNewExchange((p) => ({ ...p, type: t }))}
-                      style={{ ...styles.keywordChip, ...(newExchange.type === t ? styles.keywordChipActive : {}) }}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div style={styles.fieldBlock}>
-                <label style={styles.label}>Statut</label>
-                <select value={newExchange.status} onChange={(e) => setNewExchange((p) => ({ ...p, status: e.target.value }))} style={styles.selectSmall}>
-                  {EXCHANGE_STATUSES.map((s) => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-              <div style={styles.fieldBlock}>
-                <label style={styles.label}>Destinataire / cible</label>
-                <input value={newExchange.target} onChange={(e) => setNewExchange((p) => ({ ...p, target: e.target.value }))} style={styles.inputSmall} placeholder="Ex : famille / médecin / IDE / AS" />
-              </div>
-            </div>
-
-            <textarea
-              value={newExchange.text}
-              onChange={(e) => setNewExchange((p) => ({ ...p, text: e.target.value }))}
-              style={styles.textarea}
-              placeholder="Ajouter une activité, une info à transmettre, un message à dire à la famille..."
-            />
-
-            <div style={styles.rowWrap}>
-              <button type="button" onClick={addExchange} style={styles.primaryBtn}>Ajouter l’activité</button>
-            </div>
-
-            <div style={styles.stack}>
-              {exchanges.map((e) => (
-                <div key={e.id} style={styles.exchangeCard}>
-                  <div style={styles.exchangeHead}>
-                    <strong>{e.author}</strong>
-                    <div style={styles.rowWrap}>
-                      {!e.read ? <span style={tagStyle("red")}>Non lu</span> : null}
-                      <span style={tagStyle(getExchangeTypeColor(e.type))}>{e.type}</span>
-                      <span style={tagStyle(e.status === "Clos" ? "green" : e.status === "En attente de réponse" ? "amber" : "blue")}>{e.status}</span>
-                    </div>
-                  </div>
-
-                  <div style={styles.smallNote}>
-                    {e.actorRole} · {formatDateTime(e.createdAt)} {e.target ? `· cible : ${e.target}` : ""}
-                  </div>
-                  <div>{e.text}</div>
-
-                  <div style={styles.rowWrap}>
-                    <button type="button" onClick={() => setExchanges((prev) => prev.map((x) => x.id === e.id ? { ...x, read: true } : x))} style={styles.secondaryBtn}>
-                      Marquer lu
-                    </button>
-                    <select value={e.status} onChange={(evt) => setExchanges((prev) => prev.map((x) => x.id === e.id ? { ...x, status: evt.target.value, read: true } : x))} style={styles.selectSmall}>
-                      {EXCHANGE_STATUSES.map((s) => <option key={s}>{s}</option>)}
-                    </select>
-                    {(e.type === "Action" || e.type === "Urgent") ? (
-                      <button type="button" onClick={() => convertExchangeToAction(e)} style={styles.secondaryBtn}>
-                        Transformer en action
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <div style={styles.rowWrap}>
-                    <input
-                      value={replyDrafts[e.id] || ""}
-                      onChange={(evt) => setReplyDrafts((prev) => ({ ...prev, [e.id]: evt.target.value }))}
-                      style={styles.inputSmall}
-                      placeholder="Réponse..."
-                    />
-                    <button type="button" onClick={() => replyToExchange(e.id)} style={styles.secondaryBtn}>
-                      Répondre
-                    </button>
-                  </div>
-
-                  {e.replies.map((r) => (
-                    <div key={r.id} style={styles.reply}>
-                      ↳ {r.author} · {formatDateTime(r.createdAt)} · {r.text}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section id="section-orientation" style={{ display: activeSection === "orientation" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardTitle}>Orientation</div>
-
-            <div style={styles.sectionBanner}>
-              <div style={styles.cardSubTitle}>Hypothèse d’orientation</div>
-              <div style={styles.smallNote}>
-                Coche les éléments utiles au cas patient. Tu peux aussi ajouter un mot-clé libre si la situation est atypique.
-              </div>
-            </div>
-
-            <div style={styles.rowWrap}>
-              <input
-                value={newKeyword}
-                onChange={(e) => setNewKeyword(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addKeywordInline();
-                  }
-                }}
-                placeholder="Ajouter un mot-clé libre"
-                style={styles.inputSmall}
-              />
-              <button type="button" onClick={addKeywordInline} style={styles.secondaryBtn}>Ajouter</button>
-            </div>
-
-            <div style={styles.stack}>
-              {categoriesState.map((cat) => (
-                <div key={cat.label} style={styles.categoryCard}>
-                  <button type="button" onClick={() => toggleCategory(cat.label)} style={styles.categoryTitle}>
-                    {cat.label}
-                  </button>
-
-                  <div style={styles.keywordWrap}>
-                    {cat.children.map((child) => {
-                      const active = cat.selectedChildren.includes(child);
-                      return (
-                        <button
-                          key={child}
-                          type="button"
-                          onClick={() => toggleSubCategory(cat.label, child)}
-                          style={{ ...styles.keywordChip, ...(active ? styles.keywordChipActive : {}) }}
-                        >
-                          {child}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section id="section-ressources" style={{ display: activeSection === "ressources" && dischargeType !== "simple" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardTitle}>Ressources</div>
-
-            <input
-              placeholder="Recherche"
-              value={resourceSearch}
-              onChange={(e) => setResourceSearch(e.target.value)}
-              style={styles.input}
-            />
-
-            <div style={styles.stack}>
-              {visibleResources.map((r) => {
-                const badge = getStatusBadge(resourceFollowUp[r.id]?.status);
-                const demand = resourceFollowUp[r.id];
-                return (
-                  <div key={r.id} style={styles.resourceCard}>
-                    <div style={styles.exchangeHead}>
-                      <strong>{r.name}</strong>
-                      <div style={styles.rowWrap}>
-                        <span style={tagStyle(badge.color)}>{badge.label}</span>
-                        <span style={tagStyle(getSaturationColor(r.saturation))}>
-                          Saturation {r.saturation || "non renseignée"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div style={styles.smallNote}>
-                      {r.family} · {r.subType} · {r.territory}
-                    </div>
-                    <div style={styles.smallNote}>
-                      {r.contactPerson} · {r.phone || "Téléphone non renseigné"}
-                    </div>
-                    <div style={styles.smallNote}>Conditions : {r.conditions || "—"}</div>
-                    <div style={styles.smallNote}>Délai : {r.delay || "—"}</div>
-                    <div style={styles.smallNote}>{r.notes}</div>
-
-                    {demand ? (
-                      <div style={styles.smallNote}>
-                        Créée : {formatShortDate(demand.createdAt)} · Envoyée : {formatShortDate(demand.sentAt)} · MAJ : {formatShortDate(demand.updatedAt)} · Prochaine étape : {demand.nextStep || "—"}
-                      </div>
-                    ) : null}
-
-                    <div style={styles.rowWrap}>
-                      <button type="button" onClick={() => createOrUpdateDemand(r, "draft")} style={styles.secondaryBtn}>
-                        Proposer
-                      </button>
-                      <button type="button" onClick={() => updateResourceStatus(r, "waiting")} style={styles.secondaryBtn}>
-                        Activer
-                      </button>
-                      <button type="button" onClick={() => updateResourceStatus(r, "called_today")} style={styles.secondaryBtn}>
-                        Appeler aujourd’hui
-                      </button>
-                      <button type="button" onClick={() => createOrUpdateDemand(r, "relaunched")} style={styles.secondaryBtn}>
-                        Relancer
-                      </button>
-                      <button type="button" onClick={() => updateResourceStatus(r, "accepted")} style={styles.secondaryBtn}>
-                        Accepté
-                      </button>
-                      <button type="button" onClick={() => updateResourceStatus(r, "refused")} style={styles.secondaryBtn}>
-                        Refus
-                      </button>
-                      {r.formLink ? (
-                        <button type="button" onClick={() => openExternal(r.formLink)} style={styles.secondaryBtn}>
-                          Ouvrir
-                        </button>
-                      ) : null}
-                    </div>
-
-                    {resourceFollowUp[r.id]?.refusalReason ? (
-                      <div style={{ ...styles.smallNote, color: "#b91c1c", fontWeight: 700 }}>
-                        Motif : {resourceFollowUp[r.id].refusalReason}
-                      </div>
-                    ) : null}
-
-                    {pendingRefusalResourceId === r.id ? (
-                      <div style={styles.rowWrap}>
-                        <select value={pendingRefusalReason} onChange={(e) => setPendingRefusalReason(e.target.value)} style={styles.selectSmall}>
-                          {REFUSAL_REASONS.map((reason) => (
-                            <option key={reason} value={reason}>{reason}</option>
-                          ))}
-                        </select>
-                        <button type="button" onClick={saveRefusal} style={styles.primaryBtn}>
-                          Valider refus
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section id="section-formulaires" style={{ display: activeSection === "formulaires" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardTitle}>Formulaires utiles</div>
-
-            {contextualForms.length === 0 ? (
-              <div style={styles.smallNote}>Aucun formulaire recommandé pour le moment selon l’orientation en cours.</div>
-            ) : (
-              <div style={styles.stack}>
-                {contextualForms.map((f) => (
-                  <div key={f} style={styles.formRow}>
-                    <div style={styles.formName}>{f}</div>
-                    <div style={styles.rowWrap}>
-                      <button type="button" onClick={() => openForm(f)} style={styles.secondaryBtn}>
-                        Ouvrir
-                      </button>
-                      <select value={formsState[f]?.status || "À faire"} onChange={(e) => markFormStatus(f, e.target.value)} style={styles.selectSmall}>
-                        <option>À faire</option>
-                        <option>En cours</option>
-                        <option>Envoyé</option>
-                      </select>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section id="section-hdj" style={{ display: activeSection === "hdj" && dischargeType !== "simple" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardHeader}>
-              <div style={styles.cardTitle}>Sortie sécurisée / HDJ</div>
-              <div style={styles.rowWrap}>
-                <button type="button" onClick={() => setShowHdjForm(true)} style={styles.primaryBtn}>
-                  Nouveau HDJ
-                </button>
-                <span style={tagStyle(getStatusBadge(hdjStatus).color)}>{getStatusBadge(hdjStatus).label}</span>
-              </div>
-            </div>
-
-            <div style={styles.sectionBanner}>
-              <div style={styles.cardSubTitle}>HDJ pertinent ?</div>
-              <div style={styles.rowWrap}>
-                {[
-                  { value: "oui", label: "Oui" },
-                  { value: "non", label: "Non" },
-                  { value: "a_evaluer", label: "À évaluer" },
-                ].map((item) => (
-                  <button
-                    key={item.value}
-                    type="button"
-                    onClick={() => setHdjRelevance(item.value)}
-                    style={{ ...styles.keywordChip, ...(hdjRelevance === item.value ? styles.keywordChipActive : {}) }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={styles.stack}>
-              {similarHdj.map((m) => (
-                <div key={m.id} style={styles.exchangeCard}>
-                  <div style={styles.exchangeHead}>
-                    <strong>{m.title}</strong>
-                    <span style={tagStyle("blue")}>{m.similarity} similarité</span>
-                  </div>
-                  <div style={styles.smallNote}>{m.comment}</div>
-                  <div style={styles.keywordWrap}>
-                    {m.commonKeywords.map((k) => (
-                      <span key={k} style={tagStyle("amber")}>{k}</span>
-                    ))}
-                  </div>
-                  <button type="button" onClick={() => applyHdjModel(m)} style={styles.secondaryBtn}>
-                    Utiliser
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {showHdjForm && hdjRelevance !== "non" ? (
-              <div style={styles.hdjBox}>
-                <div style={styles.grid3}>
-                  <div style={styles.fieldBlock}>
-                    <label style={styles.label}>Titre</label>
-                    <input value={hdjForm.title} onChange={(e) => setHdjForm((p) => ({ ...p, title: e.target.value }))} style={styles.input} placeholder="Titre HDJ" />
-                  </div>
-
-                  <div style={styles.fieldBlock}>
-                    <label style={styles.label}>Acteur porteur</label>
-                    <select value={hdjForm.actor} onChange={(e) => setHdjForm((p) => ({ ...p, actor: e.target.value }))} style={styles.selectSmall}>
-                      <option value="">Acteur porteur</option>
-                      {Object.values(AGENTS_BY_ROLE).flat().map((agent) => (
-                        <option key={agent.id} value={agent.nom}>{agent.nom}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div style={styles.fieldBlock}>
-                    <label style={styles.label}>Récurrence</label>
-                    <select value={hdjForm.recurrence} onChange={(e) => setHdjForm((p) => ({ ...p, recurrence: e.target.value }))} style={styles.selectSmall}>
-                      <option value="ponctuel">Ponctuel</option>
-                      <option value="recurrent">Récurrent</option>
-                    </select>
-                  </div>
-
-                  <div style={styles.fieldBlock}>
-                    <label style={styles.label}>Fréquence</label>
-                    <select value={hdjForm.frequency} onChange={(e) => setHdjForm((p) => ({ ...p, frequency: e.target.value }))} style={styles.selectSmall}>
-                      <option value="">Choisir</option>
-                      {HDJ_FREQUENCY_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
-                    </select>
-                  </div>
-
-                  {hdjForm.frequency === "Personnalisé" ? (
-                    <div style={styles.fieldBlock}>
-                      <label style={styles.label}>Fréquence personnalisée</label>
-                      <input value={hdjForm.frequencyCustom} onChange={(e) => setHdjForm((p) => ({ ...p, frequencyCustom: e.target.value }))} style={styles.inputSmall} placeholder="Ex : 4 séances sur 2 semaines" />
-                    </div>
-                  ) : null}
-
-                  <div style={styles.fieldBlock}>
-                    <label style={styles.label}>Durée</label>
-                    <select value={hdjForm.duration} onChange={(e) => setHdjForm((p) => ({ ...p, duration: e.target.value }))} style={styles.selectSmall}>
-                      <option value="">Choisir</option>
-                      {HDJ_DURATION_OPTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </div>
-
-                  {hdjForm.duration === "Personnalisé" ? (
-                    <div style={styles.fieldBlock}>
-                      <label style={styles.label}>Durée personnalisée</label>
-                      <input value={hdjForm.durationCustom} onChange={(e) => setHdjForm((p) => ({ ...p, durationCustom: e.target.value }))} style={styles.inputSmall} placeholder="Ex : 10 séances" />
-                    </div>
-                  ) : null}
-
-                  {hdjForm.recurrence === "ponctuel" ? (
-                    <div style={styles.fieldBlock}>
-                      <label style={styles.label}>Nombre de séances</label>
-                      <input type="number" min="1" value={hdjForm.customSessions} onChange={(e) => setHdjForm((p) => ({ ...p, customSessions: Number(e.target.value || 1) }))} style={styles.inputSmall} />
-                    </div>
-                  ) : null}
-                </div>
-
-                <textarea
-                  value={hdjForm.objective}
-                  onChange={(e) => setHdjForm((p) => ({ ...p, objective: e.target.value }))}
-                  style={styles.textarea}
-                  placeholder="Objectif / contexte de la demande HDJ"
-                />
-
-                {hdjForm.recurrence === "recurrent" ? (
-                  <div style={styles.keywordWrap}>
-                    {DAYS.map((day) => (
-                      <button
-                        key={day}
-                        type="button"
-                        onClick={() => toggleHdjDay(day)}
-                        style={{ ...styles.keywordChip, ...(hdjForm.days.includes(day) ? styles.keywordChipActive : {}) }}
-                      >
-                        {day}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-
-                {Object.entries(HDJ_ACTS).map(([group, acts]) => (
-                  <div key={group} style={styles.fieldBlock}>
-                    <div style={styles.groupTitle}>{group}</div>
-                    <div style={styles.keywordWrap}>
-                      {acts.map((act) => (
-                        <button
-                          key={act}
-                          type="button"
-                          onClick={() => toggleHdjAct(act)}
-                          style={{ ...styles.keywordChip, ...(hdjForm.acts.includes(act) ? styles.keywordChipActive : {}) }}
-                        >
-                          {act}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-
-                <div style={styles.rowWrap}>
-                  <input value={customActInput} onChange={(e) => setCustomActInput(e.target.value)} style={styles.inputSmall} placeholder="Ajouter un acte libre" />
-                  <button type="button" onClick={addCustomAct} style={styles.ghostBtn}>+ Ajouter acte</button>
-                </div>
-
-                <textarea
-                  value={hdjForm.comment}
-                  onChange={(e) => setHdjForm((p) => ({ ...p, comment: e.target.value }))}
-                  style={styles.textarea}
-                  placeholder="Commentaires complémentaires"
-                />
-
-                <div style={styles.summaryBox}>
-                  <strong>Résumé automatique :</strong>
-                  <div>{hdjSummary}</div>
-                </div>
-
-                <div style={styles.rowWrap}>
-                  <button type="button" onClick={() => setHdjMailPreviewOpen((v) => !v)} style={styles.secondaryBtn}>
-                    {hdjMailPreviewOpen ? "Masquer la synthèse" : "Prévisualiser la synthèse"}
-                  </button>
-                  <button type="button" onClick={sendHdjMail} style={styles.primaryBtn}>
-                    Envoyer au secrétariat
-                  </button>
-                  <button type="button" onClick={() => setHdjStatus("relaunched")} style={styles.secondaryBtn}>
-                    Relancer secrétariat
-                  </button>
-                  <button type="button" onClick={() => setHdjStatus("received")} style={styles.secondaryBtn}>
-                    Reçu par secrétariat
-                  </button>
-                  <button type="button" onClick={() => setHdjStatus("programmed")} style={styles.secondaryBtn}>
-                    Programmé
-                  </button>
-                </div>
-
-                {hdjMailPreviewOpen ? (
-                  <div style={styles.historyBox}>
-                    <div style={styles.infoLabel}>Synthèse mail secrétariat HDJ ({HDJ_SECRETARIAT_EMAIL})</div>
-                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{hdjMailPreview}</pre>
-                  </div>
-                ) : null}
-
-                {hdjSendLog.length > 0 ? (
-                  <div style={styles.historyBox}>
-                    <div style={styles.infoLabel}>Historique envoi HDJ</div>
-                    {hdjSendLog.map((mail) => (
-                      <div key={mail.id} style={styles.smallNote}>
-                        {formatDateTime(mail.sentAt)} · envoyé à {mail.to}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
-
-          <section id="section-suivi" style={{ display: activeSection === "suivi" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardTitle}>Suivi demandes</div>
-
-            <div style={styles.stack}>
-              {Object.values(resourceFollowUp).length === 0 ? (
-                <div style={styles.smallNote}>Aucune demande suivie.</div>
-              ) : (
-                Object.values(resourceFollowUp).map((item) => (
-                  <div key={item.id} style={styles.formRow}>
-                    <div>
-                      <div style={styles.formName}>{item.name}</div>
-                      <div style={styles.smallNote}>
-                        Statut : {item.status} · Créée : {formatShortDate(item.createdAt)} · Envoyée : {formatShortDate(item.sentAt)}
-                      </div>
-                      <div style={styles.smallNote}>
-                        Dernière mise à jour : {formatShortDate(item.updatedAt)} · Prochaine étape : {item.nextStep || "—"}
-                      </div>
-                      {item.refusalReason ? (
-                        <div style={{ ...styles.smallNote, color: "#b91c1c" }}>
-                          {item.refusalReason}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          <section id="section-timeline" style={{ display: activeSection === "timeline" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardTitle}>Timeline</div>
-
-            <div style={styles.timelineRow}>
-              {timelineState.steps.map((step, i) => (
-                <div key={step.label} style={styles.timelineItem}>
-                  <div
-                    style={{
-                      ...styles.timelineDot,
-                      background: step.done ? "#16a34a" : i === timelineState.current ? "#f59e0b" : "#d1d5db",
-                    }}
-                  />
-                  <div style={styles.timelineLabel}>{step.label}</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={styles.smallNote}>Progression : {timelineState.percent}%</div>
-          </section>
-
-          <section id="section-synthese" style={{ display: activeSection === "synthese" ? "grid" : "none", ...styles.card }}>
-            <div style={styles.cardHeader}>
-              <div style={styles.cardTitle}>Synthèse</div>
-              <button type="button" onClick={exportSynthesis} style={styles.secondaryBtn}>
-                Copier la synthèse
-              </button>
-            </div>
-
-            <div style={styles.summaryBox}>
-              <div><strong>Situation :</strong> {quickSummary.situation}</div>
-              <div><strong>Blocage principal :</strong> {quickSummary.block}</div>
-              <div><strong>Stratégie :</strong> {quickSummary.strategy}</div>
-              <div><strong>Prochaine action :</strong> {quickSummary.nextAction}</div>
-              <div><strong>Pilotage :</strong> {quickSummary.owner}</div>
-            </div>
-
-            <div style={styles.grid3}>
-              <div style={styles.fieldBlock}>
-                <label style={styles.label}>Stratégie principale</label>
-                <input value={strategyPlan.main} onChange={(e) => setStrategyPlan((p) => ({ ...p, main: e.target.value }))} style={styles.inputSmall} placeholder="Ex : retour domicile" />
-              </div>
-              <div style={styles.fieldBlock}>
-                <label style={styles.label}>Plan B</label>
-                <input value={strategyPlan.alternative1} onChange={(e) => setStrategyPlan((p) => ({ ...p, alternative1: e.target.value }))} style={styles.inputSmall} placeholder="Ex : HDJ" />
-              </div>
-              <div style={styles.fieldBlock}>
-                <label style={styles.label}>Plan C</label>
-                <input value={strategyPlan.alternative2} onChange={(e) => setStrategyPlan((p) => ({ ...p, alternative2: e.target.value }))} style={styles.inputSmall} placeholder="Ex : SMR / EHPAD" />
-              </div>
-            </div>
-
-            <div style={styles.historyBox}>
-              <div style={styles.infoLabel}>Ce qu’il manque pour avancer</div>
-              {dossierCompleteness.length === 0 ? (
-                <div style={styles.smallNote}>Dossier suffisamment renseigné.</div>
-              ) : (
-                dossierCompleteness.map((item) => (
-                  <div key={item} style={styles.smallNote}>- {item}</div>
-                ))
-              )}
-            </div>
-
-            <div style={styles.fieldBlock}>
-              <label style={styles.label}>Journal des décisions</label>
-              <div style={styles.rowWrap}>
-                <input value={decisionDraft} onChange={(e) => setDecisionDraft(e.target.value)} style={styles.inputSmall} placeholder="Ex : bascule plan B HDJ après refus EHPAD" />
-                <button type="button" onClick={() => addDecision(decisionDraft)} style={styles.primaryBtn}>
-                  Ajouter la décision
-                </button>
-              </div>
-            </div>
-
-            <div style={styles.historyBox}>
-              <div style={styles.infoLabel}>Décisions récentes</div>
-              {decisionLog.length === 0 ? (
-                <div style={styles.smallNote}>Aucune décision tracée.</div>
-              ) : (
-                decisionLog.map((d) => (
-                  <div key={d.id} style={styles.smallNote}>
-                    {formatDateTime(d.date)} · {d.text}
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div style={styles.historyBox}>
-              <div style={styles.infoLabel}>Derniers événements</div>
-              {sortedActions.slice(0, 3).map((a) => (
-                <div key={a.id} style={styles.smallNote}>
-                  Action · {a.title} · {a.status} · {formatDateTime(a.updatedAt)}
-                </div>
-              ))}
-              {Object.values(resourceFollowUp).slice(0, 3).map((d) => (
-                <div key={d.id} style={styles.smallNote}>
-                  Demande · {d.name} · {d.status} · {formatDateTime(d.updatedAt)}
-                </div>
-              ))}
-              {exchanges.slice(0, 3).map((e) => (
-                <div key={e.id} style={styles.smallNote}>
-                  Activité {e.type} · {e.text.slice(0, 60)} · {formatDateTime(e.createdAt)}
-                </div>
-              ))}
-            </div>
-          </section>
-        </main>
-      </div>
-    </div>
+
+<div style={styles.page}>
+<div style={styles.shell}>
+<aside style={styles.sidebar}>
+<div style={styles.sidebarTitle}>Copilote de coordination</div>
+
+{MENU_ITEMS.map((item) => (
+<button
+key={item.id}
+type="button"
+onClick={() => scrollToSection(setActiveSection, item.id)}
+style={{
+...styles.sideButton,
+...(activeSection === item.id ? styles.sideButtonActive : {}),
+}}
+>
+<span>{item.label}</span>
+
+{item.id === "actions" ? (
+<span style={tagStyle("red")}>
+{actions.filter((a) => a.status !== "Réalisé").length}
+</span>
+) : null}
+
+{item.id === "orientation" ? (
+<span style={tagStyle("blue")}>
+{categoriesState.filter((c) => c.selected || c.selectedChildren.length > 0).length}
+</span>
+) : null}
+
+{item.id === "ressources" ? (
+<span style={tagStyle("blue")}>
+{visibleResources.length}
+</span>
+) : null}
+
+{item.id === "activite" ? (
+<span style={tagStyle("amber")}>
+{activitesATraiter.length}
+</span>
+) : null}
+</button>
+))}
+</aside>
+
+<main style={styles.main}>
+<section
+
+id="section-copilot"
+style={{
+display: activeSection === "copilot" ? "grid" : "none",
+...styles.card,
+}}
+>
+<div style={styles.copilotHeroCard}>
+<div style={styles.copilotTopRow}>
+<div>
+<div style={{ display: "grid", gap: 6 }}>
+<div style={styles.cardTitle}>Copilote</div>
+
+<div style={styles.copilotPatientName}>
+{patient.nom} {patient.prenom}
+</div>
+
+<div style={styles.copilotPatientDetails}>
+Né(e) {patient.dateNaissance || "—"} ·
+Âge {patient.age || "—"} ·
+INS {patient.ins || "—"} ·
+IEP {patient.iep || "—"}
+</div>
+
+
+<div style={styles.copilotPatientMeta}>
+{currentLocation.service || patient?.service || "Service non renseigné"} · Chambre{" "}
+{currentLocation.chambre || patient?.chambre || "—"} · Lit{" "}
+{currentLocation.lit || patient?.lit || "—"}
+</div>
+</div>
+</div>
+<div style={styles.copilotBadges}>
+<span style={tagStyle(complexity.color)}>Complexité {complexity.label}</span>
+<span
+style={tagStyle(
+lengthOfStay > DMS_THRESHOLD ? "red" : lengthOfStay >= 10 ? "amber" : "green"
+)}
+>
+DMS {lengthOfStay > DMS_THRESHOLD ? "dépassée" : lengthOfStay >= 10 ? "proche" : "OK"}
+</span>
+<span style={tagStyle("blue")}>Séjour J+{lengthOfStay}</span>
+</div>
+</div>
+
+<div style={styles.copilotStatsGrid}>
+<div style={styles.copilotStatBox}>
+<div style={styles.copilotStatLabel}>Actions en cours</div>
+<div style={styles.copilotStatValue}>
+{actions.filter((a) => a.status !== "Réalisé").length}
+</div>
+</div>
+
+<div style={styles.copilotStatBox}>
+<div style={styles.copilotStatLabel}>Activités à traiter</div>
+<div style={styles.copilotStatValue}>{activitesATraiter.length}</div>
+</div>
+
+<button
+type="button"
+onClick={() => setActiveSection("actions")}
+style={{
+...styles.copilotStatBox,
+...styles.copilotClickableCard,
+}}
+>
+<div style={styles.copilotStatLabel}>Blocage principal</div>
+<div style={styles.copilotMiniText}>
+{quickSummary.block || "Non renseigné"}
+</div>
+<div style={styles.copilotLinkText}>Voir l’action</div>
+</button>
+
+<button
+type="button"
+onClick={() => scrollToSection(setActiveSection, "actions")}
+style={{
+...styles.copilotStatBox,
+...styles.copilotClickableCard,
+}}
+>
+<div style={styles.copilotStatLabel}>Blocage principal</div>
+<div style={styles.copilotMiniText}>
+{quickSummary.block || "Non renseigné"}
+</div>
+<div style={styles.copilotLinkText}>Voir l’action</div>
+</button>
+</div>
+
+<div style={styles.copilotAlertBox}>
+{lengthOfStay > DMS_THRESHOLD
+? "⚠️ Séjour prolongé — prioriser la sortie"
+: lengthOfStay >= 10
+? "⚠️ Anticiper la sortie"
+: "✔️ Situation maîtrisée"}
+</div>
+
+<div style={styles.copilotButtonsRow}>
+{actions.filter((a) => a.status !== "Réalisé").length > 0 && (
+
+<button
+type="button"
+style={styles.primaryBtn}
+onClick={() => scrollToSection(setActiveSection, "actions")}
+
+>
+Voir les actions en cours
+</button>
+)}
+
+{activitesATraiter.length > 0 && (
+
+<button
+type="button"
+style={styles.secondaryBtn}
+onClick={() => scrollToSection(setActiveSection, "actions")}
+
+>
+Traiter les activités
+</button>
+)}
+</div>
+</div>
+</section>
+<section
+id="section-actions"
+style={{
+display: activeSection === "actions" ? "grid" : "none",
+...styles.card,
+}}
+>
+<div style={styles.cardHeader}>
+<div style={styles.cardTitle}>Actions</div>
+<span style={tagStyle("red")}>
+{actions.filter((a) => a.status !== "Réalisé").length} en cours
+</span>
+</div>
+
+<div id="actions-a-faire" style={styles.sectionBanner}>
+<div style={styles.cardSubTitle}>À faire maintenant</div>
+
+{actions.filter((a) => a.status !== "Réalisé").length === 0 ? (
+<div style={styles.smallNote}>Aucune action prioritaire.</div>
+) : (
+actions
+.filter((a) => a.status !== "Réalisé")
+.slice(0, 3)
+.map((a) => (
+<div key={a.id} style={styles.formRow}>
+<div style={{ fontWeight: 800 }}>{a.title}</div>
+<div style={styles.smallNote}>
+{a.priority} · {a.status}
+</div>
+</div>
+))
+)}
+</div>
+
+<div style={styles.stack}>
+{sortedActions.map((a) => (
+<div key={a.id} style={styles.postit}>
+<div style={styles.exchangeHead}>
+<div>
+<div style={styles.postitTitle}>{a.title}</div>
+<div style={styles.smallNote}>
+{a.domain || "Coordination"} · {a.priority}
+</div>
+</div>
+
+<span
+style={tagStyle(
+a.status === "Réalisé"
+? "green"
+: a.status === "Bloqué"
+? "red"
+: a.status === "En attente externe"
+? "amber"
+: "blue"
+)}
+>
+{a.status}
+</span>
+</div>
+
+<div style={styles.rowWrap}>
+{ACTION_STATUSES.map((status) => (
+<button
+key={status}
+type="button"
+onClick={() => updateAction(a.id, { status })}
+style={{
+...styles.actionPill,
+...(a.status === status
+? { border: "1px solid #17376a", background: "#eef4ff" }
+: {}),
+}}
+>
+{status}
+</button>
+))}
+</div>
+
+<div style={styles.smallNote}>
+Échéance : {a.dueDate ? formatShortDate(a.dueDate) : "non définie"}
+</div>
+</div>
+))}
+</div>
+</section>
+
+<section
+id="section-orientation"
+style={{
+display: activeSection === "orientation" ? "grid" : "none",
+...styles.card,
+}}
+>
+<div style={styles.cardTitle}>Orientation</div>
+
+<div style={styles.rowWrap}>
+<input
+value={newKeyword}
+onChange={(e) => setNewKeyword(e.target.value)}
+onKeyDown={(e) => {
+if (e.key === "Enter") {
+e.preventDefault();
+addKeywordInline();
+}
+}}
+placeholder="Ajouter un mot-clé libre"
+style={styles.inputSmall}
+/>
+<button type="button" onClick={addKeywordInline} style={styles.secondaryBtn}>
+Ajouter
+</button>
+</div>
+
+<div style={styles.stack}>
+{categoriesState.map((cat) => (
+<div key={cat.label} style={styles.categoryCard}>
+<button type="button" onClick={() => toggleCategory(cat.label)} style={styles.categoryTitle}>
+{cat.label}
+</button>
+
+<div style={styles.keywordWrap}>
+{cat.children.map((child) => {
+const active = cat.selectedChildren.includes(child);
+return (
+<button
+key={child}
+type="button"
+onClick={() => toggleSubCategory(cat.label, child)}
+style={{ ...styles.keywordChip, ...(active ? styles.keywordChipActive : {}) }}
+>
+{child}
+</button>
+);
+})}
+</div>
+</div>
+))}
+</div>
+</section>
+
+<section
+id="section-demandes"
+style={{
+display: activeSection === "demandes" ? "grid" : "none",
+...styles.card,
+}}
+>
+<div style={styles.cardTitle}>Demandes</div>
+
+<div style={styles.stack}>
+{Object.values(resourceFollowUp).length === 0 ? (
+<div style={styles.smallNote}>Aucune demande suivie.</div>
+) : (
+Object.values(resourceFollowUp).map((item) => (
+<div key={item.id} style={styles.formRow}>
+<div>
+<div style={styles.formName}>{item.name}</div>
+<div style={styles.smallNote}>
+Statut : {item.status} · Créée : {formatShortDate(item.createdAt)} · Envoyée :{" "}
+{formatShortDate(item.sentAt)}
+</div>
+<div style={styles.smallNote}>
+Dernière mise à jour : {formatShortDate(item.updatedAt)} · Prochaine étape :{" "}
+{item.nextStep || "—"}
+</div>
+</div>
+</div>
+))
+)}
+</div>
+</section>
+
+<section
+id="section-ressources"
+style={{
+display: activeSection === "ressources" ? "grid" : "none",
+...styles.card,
+}}
+>
+<div style={styles.cardTitle}>Ressources</div>
+
+<input
+placeholder="Recherche"
+value={resourceSearch}
+onChange={(e) => setResourceSearch(e.target.value)}
+style={styles.input}
+/>
+
+<div style={styles.stack}>
+{visibleResources.map((r) => {
+const badge = getStatusBadge(resourceFollowUp[r.id]?.status);
+return (
+<div key={r.id} style={styles.resourceCard}>
+<div style={styles.exchangeHead}>
+<strong>{r.name}</strong>
+<span style={tagStyle(badge.color)}>{badge.label}</span>
+</div>
+
+<div style={styles.smallNote}>
+{r.family} · {r.subType} · {r.territory}
+</div>
+
+<div style={styles.rowWrap}>
+<button type="button" onClick={() => createOrUpdateDemand(r, "draft")} style={styles.secondaryBtn}>
+Proposer
+</button>
+<button type="button" onClick={() => updateResourceStatus(r, "waiting")} style={styles.secondaryBtn}>
+Activer
+</button>
+<button type="button" onClick={() => updateResourceStatus(r, "accepted")} style={styles.secondaryBtn}>
+Accepté
+</button>
+<button type="button" onClick={() => updateResourceStatus(r, "refused")} style={styles.secondaryBtn}>
+Refus
+</button>
+</div>
+</div>
+);
+})}
+</div>
+</section>
+
+<section
+id="section-activite"
+style={{
+display: activeSection === "activite" ? "grid" : "none",
+...styles.card,
+}}
+>
+<div style={styles.cardHeader}>
+<div style={styles.cardTitle}>Activité</div>
+<div style={styles.rowWrap}>
+<span style={tagStyle("amber")}>{activitesATraiter.length} à traiter</span>
+</div>
+</div>
+
+<div style={styles.sectionBanner}>
+<div style={styles.cardSubTitle}>Ajouter une activité</div>
+
+<div style={styles.grid3}>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Type</label>
+<select
+value={newExchange.type}
+onChange={(e) => setNewExchange((prev) => ({ ...prev, type: e.target.value }))}
+style={styles.selectSmall}
+>
+{EXCHANGE_TYPES.map((t) => (
+<option key={t} value={t}>
+{t}
+</option>
+))}
+</select>
+</div>
+
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Statut</label>
+<select
+value={newExchange.status}
+onChange={(e) => setNewExchange((prev) => ({ ...prev, status: e.target.value }))}
+style={styles.selectSmall}
+>
+{EXCHANGE_STATUSES.map((s) => (
+<option key={s} value={s}>
+{s}
+</option>
+))}
+</select>
+</div>
+
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Destinataire / cible</label>
+<input
+value={newExchange.target}
+onChange={(e) => setNewExchange((prev) => ({ ...prev, target: e.target.value }))}
+style={styles.inputSmall}
+placeholder="Ex : famille / médecin / IDE / AS"
+/>
+</div>
+</div>
+
+<textarea
+value={newExchange.text}
+onChange={(e) => setNewExchange((prev) => ({ ...prev, text: e.target.value }))}
+style={styles.textarea}
+placeholder="Tracer une info utile, une demande, un retour famille, un point urgent..."
+/>
+
+<div style={styles.rowWrap}>
+<button type="button" onClick={addExchange} style={styles.primaryBtn}>
+Ajouter l’activité
+</button>
+</div>
+</div>
+
+<div style={styles.stack}>
+<div style={styles.cardSubTitle}>À traiter maintenant</div>
+
+{activitesATraiter.length === 0 ? (
+<div style={styles.smallNote}>Aucune activité à traiter.</div>
+) : (
+activitesATraiter.map((e) => (
+<div key={e.id} style={styles.exchangeCard}>
+<div style={styles.exchangeHead}>
+<strong>{formatActorName ? formatActorName(e.author) : e.author}</strong>
+<div style={styles.rowWrap}>
+{!e.read ? <span style={tagStyle("red")}>Non lu</span> : null}
+<span style={tagStyle(e.type === "Urgent" ? "red" : e.type === "Famille" ? "purple" : e.type === "Action" ? "amber" : "blue")}>
+{e.type}
+</span>
+<span style={tagStyle("blue")}>{e.status}</span>
+</div>
+</div>
+
+<div style={styles.smallNote}>{formatDateTime(e.createdAt)}</div>
+<div style={{ fontWeight: 700 }}>{e.text}</div>
+
+<div style={styles.rowWrap}>
+<button
+type="button"
+onClick={() =>
+setExchanges((prev) => prev.map((x) => (x.id === e.id ? { ...x, read: true } : x)))
+}
+style={styles.secondaryBtn}
+>
+Marquer lu
+</button>
+</div>
+</div>
+))
+)}
+</div>
+</section>
+
+<section
+id="section-synthese"
+style={{
+display: activeSection === "synthese" ? "grid" : "none",
+...styles.card,
+}}
+>
+<div style={styles.cardHeader}>
+<div style={styles.cardTitle}>Synthèse</div>
+<button type="button" onClick={exportSynthesis} style={styles.secondaryBtn}>
+Copier la synthèse
+</button>
+</div>
+
+<div style={styles.summaryBox}>
+<div><strong>Situation :</strong> {quickSummary.situation}</div>
+<div><strong>Blocage principal :</strong> {quickSummary.block}</div>
+<div><strong>Stratégie :</strong> {quickSummary.strategy}</div>
+<div><strong>Prochaine action :</strong> {quickSummary.nextAction}</div>
+<div><strong>Pilotage :</strong> {quickSummary.owner}</div>
+</div>
+</section>
+</main>
+</div>
+</div>
+    
   );
 }

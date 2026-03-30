@@ -358,135 +358,49 @@ rawPatient?.vulnerabilityProfiles
 : deriveFromStructuredIntake(structuredIntake);
 
 const autoVulnerabilityProfiles = safeArray(
-baseDerived?.autoVulnerabilityProfiles || baseDerived?.vulnerabilityProfiles
+baseDerived?.autoVulnerabilityProfiles ||
+baseDerived?.vulnerabilityProfiles
 );
-
-const vulnerability = {
-...(rawPatient?.vulnerability || {}),
-criteria: safeArray(rawPatient?.vulnerability?.criteria),
-measures: safeArray(rawPatient?.vulnerability?.measures),
-actions: safeArray(rawPatient?.vulnerability?.actions),
-updatedAt: rawPatient?.vulnerability?.updatedAt || "",
-updatedBy: rawPatient?.vulnerability?.updatedBy || "",
-evaluator: rawPatient?.vulnerability?.evaluator || "",
-author: rawPatient?.vulnerability?.author || "",
-};
-
-const manualCriteriaProfiles = vulnerability.criteria.map((item, index) => ({
-code: `manual_criterion_${index}_${normalizeText(item)}`,
-label: item,
-source: "manual-criteria",
-}));
 
 const vulnerabilityProfiles = mergeProfiles(
 autoVulnerabilityProfiles,
-[...manualVulnerabilityProfiles, ...manualCriteriaProfiles]
+manualVulnerabilityProfiles
 );
 
-const derived = {
-...baseDerived,
-autoVulnerabilityProfiles,
-vulnerabilityProfiles,
-isVulnerable:
-vulnerabilityProfiles.length > 0 || vulnerability.criteria.length > 0,
-};
-
 return {
-id: rawPatient?.id || `sim_${Date.now()}`,
-nom: rawPatient?.nom || "",
-prenom: rawPatient?.prenom || "",
-dateNaissance: rawPatient?.dateNaissance || "",
-age: rawPatient?.age || "",
-ins: rawPatient?.ins || "",
-iep: rawPatient?.iep || "",
-service: rawPatient?.service || "",
-chambre: rawPatient?.chambre || "",
-lit: rawPatient?.lit || "",
-orientation: rawPatient?.orientation || "",
-blockReason: rawPatient?.blockReason || "",
-blocage: rawPatient?.blocage || "",
-severity: rawPatient?.severity || "Standard",
-gravite: rawPatient?.gravite || rawPatient?.severity || "Standard",
-dateEntree:
-rawPatient?.dateEntree || new Date().toISOString().slice(0, 10),
-dateSortiePrevue: rawPatient?.dateSortiePrevue || "",
-
-medicalReady: Boolean(
-rawPatient?.medicalReady ||
-rawPatient?.sortantMedical ||
-rawPatient?.medicalReadiness?.isMedicallyReady
-),
-sortantMedical: Boolean(
-rawPatient?.sortantMedical ||
-rawPatient?.medicalReady ||
-rawPatient?.medicalReadiness?.isMedicallyReady
-),
-medicalReadyAt: rawPatient?.medicalReadyAt || "",
-medicalReadiness: {
-...(rawPatient?.medicalReadiness || {}),
-isMedicallyReady: Boolean(
-rawPatient?.medicalReadiness?.isMedicallyReady ||
-rawPatient?.medicalReady ||
-rawPatient?.sortantMedical
-),
-activatedAt:
-rawPatient?.medicalReadiness?.activatedAt ||
-rawPatient?.medicalReadyAt ||
-"",
-},
-
-territory: rawPatient?.territory || {},
-adresse: rawPatient?.adresse || {},
-
-intakeSelections: rawPatient?.intakeSelections || {},
-staySelections: rawPatient?.staySelections || {},
-freeCriteria: safeArray(rawPatient?.freeCriteria),
+...rawPatient,
 
 structuredIntake,
-vulnerability,
 
-derivedCategories: derived.derivedCategories,
-derivedKeywords: derived.derivedKeywords,
-derivedOrientations: derived.derivedOrientations,
-matchedRuleIds: derived.matchedRuleIds,
-derivedFreins: derived.derivedFreins || [],
-derivedConsequences: derived.derivedConsequences || [],
-derivedAlerts: derived.derivedAlerts || [],
-complexityScore: derived.complexityScore ?? 0,
-complexityLabel: derived.complexityLabel || "standard",
-autoVulnerabilityProfiles: derived.autoVulnerabilityProfiles || [],
+derivedCategories: baseDerived.derivedCategories,
+derivedKeywords: baseDerived.derivedKeywords,
+derivedOrientations: baseDerived.derivedOrientations,
+matchedRuleIds: baseDerived.matchedRuleIds,
+derivedFreins: baseDerived.derivedFreins,
+derivedConsequences: baseDerived.derivedConsequences,
+derivedAlerts: baseDerived.derivedAlerts,
+
+complexityScore: baseDerived.complexityScore ?? 0,
+complexityLabel: baseDerived.complexityLabel || "standard",
+
+autoVulnerabilityProfiles,
 manualVulnerabilityProfiles,
-vulnerabilityProfiles: derived.vulnerabilityProfiles || [],
-isVulnerable:
-derived.isVulnerable ||
-safeArray(rawPatient?.vulnerability?.criteria).length > 0 ||
-false,
+vulnerabilityProfiles,
 
-dynamicNeeds: safeArray(rawPatient?.dynamicNeeds),
-dynamicCategories: safeArray(rawPatient?.dynamicCategories),
-dynamicBlockages: safeArray(rawPatient?.dynamicBlockages),
+isVulnerable: vulnerabilityProfiles.length > 0,
 
-actionPlan: safeArray(rawPatient?.actionPlan),
-hdjHistory: safeArray(rawPatient?.hdjHistory),
-resourceFollowUp: safeArray(rawPatient?.resourceFollowUp),
-spiritNotes: safeArray(rawPatient?.spiritNotes).map((note) => ({
-...note,
-replies: safeArray(note?.replies),
-})),
-history: safeArray(rawPatient?.history),
-categories: safeArray(rawPatient?.categories),
-personneConfiance: rawPatient?.personneConfiance || "",
-personneAPrevenir: rawPatient?.personneAPrevenir || "",
-medecin: rawPatient?.medecin || "",
-ide: rawPatient?.ide || "",
-cadre: rawPatient?.cadre || "",
-as: rawPatient?.as || "",
-source: rawPatient?.source || "SIMULATION",
-createdAt: rawPatient?.createdAt || new Date().toISOString(),
-updatedAt: rawPatient?.updatedAt || "",
+// 🔥 CRITIQUE → conservation données métier
+incidentHistory: safeArray(rawPatient?.incidentHistory),
+
+copilotState: rawPatient?.copilotState || null,
+copilotSummary: rawPatient?.copilotSummary || null,
+
+parcoursStatus: rawPatient?.parcoursStatus || "",
+nextAction: rawPatient?.nextAction || null,
+
+updatedAt: new Date().toISOString(),
 };
 }
-
 export function PatientSimulationProvider({ children }) {
 const [patientsState, setPatientsState] = useState(() => {
 const stored = readJsonStorage(PATIENTS_STORAGE_KEY, null);
@@ -655,46 +569,63 @@ getIncidentsByPatientId(patientId).find(
 
 const closeIncidentForPatient = useCallback(
 (incidentId, by = "Utilisateur courant", outcome = {}) => {
+let closedIncident = null;
+
 setIncidentsState((prev) =>
 prev.map((incident) => {
 if (String(incident.id) !== String(incidentId)) return incident;
 
-return normalizeIncident({
+const updated = normalizeIncident({
 ...incident,
 status: "closed",
 currentStep: "closed",
 closedAt: new Date().toISOString(),
+closedBy: by,
 workflow: {
 ...(incident.workflow || {}),
-found: outcome.found ?? incident?.workflow?.found ?? null,
+found: outcome.found ?? incident.workflow?.found ?? null,
 foundLocation:
-outcome.foundLocation || incident?.workflow?.foundLocation || "",
+outcome.foundLocation ||
+incident.workflow?.foundLocation ||
+"",
 finalComment:
-outcome.comment ||
-incident?.workflow?.finalComment ||
-outcome.finalStatus ||
+outcome.finalComment ||
+incident.workflow?.finalComment ||
 "",
 },
-outcome: {
-found: outcome.found ?? null,
-foundAt: outcome.foundAt || new Date().toISOString(),
-foundLocation: outcome.foundLocation || "",
-finalStatus: outcome.finalStatus || "Incident clôturé",
-comment: outcome.comment || "",
-},
-incidentLog: [
-...safeArray(incident.incidentLog),
-{
-id: `evt_${Date.now()}`,
-at: new Date().toISOString(),
-type: "incident_closed",
-label: "Incident clôturé",
-role: "workflow",
-by,
-payload: outcome,
-},
-],
 });
+
+closedIncident = updated;
+return updated;
+})
+);
+
+setPatientsState((prevPatients) =>
+prevPatients.map((patient) => {
+if (!closedIncident) return patient;
+if (String(patient.id) !== String(closedIncident.patientId))
+return patient;
+
+const historyEntry = {
+incidentId: closedIncident.id,
+type: "disparition",
+createdAt: closedIncident.createdAt,
+closedAt: closedIncident.closedAt,
+outcome: closedIncident.workflow?.found,
+location: closedIncident.workflow?.foundLocation,
+comment: closedIncident.workflow?.finalComment,
+closedBy: by,
+reportAvailable: true,
+reportKey: `incident_report_${closedIncident.id}`,
+};
+
+return {
+...patient,
+incidentHistory: [
+...(patient.incidentHistory || []),
+historyEntry,
+],
+};
 })
 );
 },
@@ -723,7 +654,47 @@ patientsState.find(
 },
 [patientsState]
 );
+const saveCopilotState = useCallback((patientId, patch) => {
+setPatientsState((prev) =>
+prev.map((patient) => {
+if (String(patient.id) !== String(patientId)) return patient;
 
+
+const current = patient.copilotState || {};
+const nextPatch =
+typeof patch === "function" ? patch(current) : patch || {};
+
+return buildPatient({
+...patient,
+copilotState: mergeDeep(current, nextPatch),
+updatedAt: new Date().toISOString(),
+});
+})
+);
+}, []);
+const syncCopilotToPatient = useCallback((patientId, payload) => {
+setPatientsState((prev) =>
+prev.map((patient) => {
+if (String(patient.id) !== String(patientId)) return patient;
+
+const next =
+typeof payload === "function" ? payload(patient) : payload || {};
+
+return buildPatient({
+...patient,
+copilotSummary:
+next.copilotSummary || patient.copilotSummary || null,
+parcoursStatus:
+next.parcoursStatus || patient.parcoursStatus || "",
+nextAction: next.nextAction || patient.nextAction || null,
+actionPlan: next.actionPlan || patient.actionPlan || [],
+resourceFollowUp:
+next.resourceFollowUp || patient.resourceFollowUp || [],
+updatedAt: new Date().toISOString(),
+});
+})
+);
+}, []);
 const addSimulatedPatient = useCallback((rawPatient) => {
 const nextPatient = buildPatient(rawPatient);
 const newId = nextPatient.id;
@@ -1410,6 +1381,9 @@ patients: patientsState,
 patientsSimulated: patientsState,
 resources: resourcesState,
 setResources: setResourcesState,
+
+saveCopilotState,
+syncCopilotToPatient,
 
 incidents: incidentsState,
 createIncidentForPatient,

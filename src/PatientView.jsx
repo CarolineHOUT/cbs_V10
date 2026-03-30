@@ -266,9 +266,23 @@ return `Il y a ${diffDays} jours`;
 }
 
 function getDecisionStatus(patient) {
-if (patient?.dischargePlanning?.targetDateValidated) return { label: "Validé", color: "green" };
-if (getTargetDate(patient) || getSolutionLabel(patient) !== "Aucune") return { label: "À confirmer", color: "amber" };
-return { label: "En cours", color: "blue" };
+const solution = getSolutionLabel(patient);
+const targetDate = getTargetDate(patient);
+const isValidated = Boolean(patient?.dischargePlanning?.targetDateValidated);
+
+if (isValidated) {
+return { label: "Validé", color: "green" };
+}
+
+if (solution === "Aucune") {
+return { label: "Décision à poser", color: "red" };
+}
+
+if (!targetDate) {
+return { label: "Date à poser", color: "amber" };
+}
+
+return { label: "À confirmer", color: "blue" };
 }
 
 function getDateStatus(date) {
@@ -321,7 +335,157 @@ if (!report.actions?.trim()) suggestions.push("Formuler une décision staff expl
 if (!report.objectifs?.trim()) suggestions.push("Préciser l’objectif de sortie / coordination.");
 return suggestions.slice(0, 5);
 }
+function getRecueilItems(patient) {
+const structured = patient?.structuredIntake || {};
 
+const entourage = [];
+if (structured?.entourage?.seul) entourage.push("Vit seul");
+if (structured?.entourage?.enFamille) entourage.push("Vie en famille");
+if (structured?.entourage?.enInstitution) entourage.push("Vie en institution");
+if (structured?.entourage?.aidant) entourage.push("Aidant présent");
+if (structured?.entourage?.aucuneAide) entourage.push("Aucune aide");
+if (structured?.entourage?.aideADomicile) entourage.push("Aide à domicile");
+if (structured?.entourage?.aideFamiliale) entourage.push("Aide familiale");
+
+const securite = [];
+if (structured?.securite?.risqueChute) securite.push("Risque de chute");
+if (structured?.securite?.isolement) securite.push("Isolement");
+if (structured?.securite?.troublesCognitifs) securite.push("Troubles cognitifs");
+if (structured?.securite?.desorientation) securite.push("Désorientation");
+if (structured?.securite?.refusAide) securite.push("Refus d’aide");
+if (structured?.securite?.logementInadapte) securite.push("Logement inadapté");
+
+const aidesTechniques = [];
+if (structured?.materiel?.aidesTechniques?.canne) aidesTechniques.push("Canne");
+if (structured?.materiel?.aidesTechniques?.deambulateur) aidesTechniques.push("Déambulateur");
+if (structured?.materiel?.aidesTechniques?.fauteuil) aidesTechniques.push("Fauteuil");
+if (structured?.materiel?.aidesTechniques?.litMedicalise) aidesTechniques.push("Lit médicalisé");
+
+return [
+{
+label: "Entourage",
+value: entourage.length ? entourage.join(" · ") : "Non renseigné",
+},
+{
+label: "Sécurité / fragilité",
+value: securite.length ? securite.join(" · ") : "Non renseigné",
+},
+{
+label: "Mobilité / matériel",
+value: aidesTechniques.length ? aidesTechniques.join(" · ") : "Non renseigné",
+},
+{
+label: "GIR",
+value: structured?.gir?.gir || "Non renseigné",
+},
+{
+label: "Protection juridique",
+value: structured?.social?.protectionJuridique || "Non renseigné",
+},
+{
+label: "Isolement social",
+value: structured?.social?.isolementSocial ? "Oui" : "Non",
+},
+];
+}
+
+function getAutoAnalysisItems(patient) {
+const analysis = [];
+
+analysis.push({
+label: "Vulnérabilité",
+value: isVulnerable(patient) ? "Patient vulnérable" : "Pas de vulnérabilité majeure détectée",
+});
+
+analysis.push({
+label: "Complexité",
+value: isComplexPatient(patient) ? "Parcours complexe" : "Parcours standard",
+});
+
+analysis.push({
+label: "Blocage principal",
+value: getBlockageLabel(patient),
+});
+
+analysis.push({
+label: "Orientation probable",
+value: getSolutionLabel(patient),
+});
+
+analysis.push({
+label: "Risque DMS",
+value: getRiskLevel(patient).label,
+});
+
+analysis.push({
+label: "Action prioritaire",
+value: buildStaffAutoSummary(patient).decision,
+});
+
+return analysis;
+}
+
+function getDecisionItems(patient) {
+const targetDate = getTargetDate(patient);
+const decisionStatus = getDecisionStatus(patient);
+
+return [
+{
+label: "Orientation principale",
+value:
+getSolutionLabel(patient) === "Aucune"
+? <StatusChip color="red">⚠️ Décision à poser</StatusChip>
+: getSolutionLabel(patient),
+},
+{
+label: "Blocage",
+value:
+getBlockageLabel(patient) === "Non défini"
+? <StatusChip color="amber">⚠️ Blocage à qualifier</StatusChip>
+: getBlockageLabel(patient),
+},
+{
+label: "Date cible",
+value:
+targetDate
+? formatShortDate(targetDate)
+: <StatusChip color="amber">⚠️ Date à poser</StatusChip>,
+},
+{
+label: "Statut décision",
+value: decisionStatus.label,
+},
+{
+label: "Sortant médicalement",
+value: isMedicalReady(patient) ? "Oui" : "Non",
+},
+{
+label: "Sujet prioritaire",
+value: getPatientSubject(patient),
+},
+];
+}
+function getImmediateActions(patient) {
+const actions = [];
+
+if (getSolutionLabel(patient) === "Aucune") {
+actions.push("Définir une orientation de sortie");
+}
+
+if (getBlockageLabel(patient) === "Non défini") {
+actions.push("Qualifier le blocage principal");
+}
+
+if (!getTargetDate(patient)) {
+actions.push("Poser une date cible de sortie");
+}
+
+if (isMedicalReady(patient) && getSolutionLabel(patient) === "Aucune") {
+actions.push("Trouver une solution d’aval rapidement");
+}
+
+return actions;
+}
 function buildServiceIndicators(currentPatient, allPatients) {
 const serviceName = currentPatient?.service;
 const servicePatients = allPatients.filter((p) => p?.service === serviceName);
@@ -875,9 +1039,12 @@ const addIncidentAction = simulation.addIncidentAction || (() => {});
 const updateIncidentStatus = simulation.updateIncidentStatus || (() => {});
 const closeIncidentForPatient = simulation.closeIncidentForPatient || (() => {});
 const incidents = simulation.incidents || [];
+
 const getPatientById = simulation.getPatientById;
 const updatePatient = simulation.updatePatient;
 const patientsSimulated = simulation.patientsSimulated || [];
+
+
 
 const patient = useMemo(() => {
 const simulated = getPatientById(id);
@@ -885,9 +1052,86 @@ if (simulated) return simulated;
 return patients.find((p) => String(p.id) === String(id)) || null;
 }, [getPatientById, id]);
 
+const personneConfiance = {
+nom:
+patient?.structuredIntake?.contacts?.personneConfiance?.nom ||
+patient?.personneConfiance?.nom ||
+"",
+prenom:
+patient?.structuredIntake?.contacts?.personneConfiance?.prenom ||
+patient?.personneConfiance?.prenom ||
+"",
+telephone:
+patient?.structuredIntake?.contacts?.personneConfiance?.telephone ||
+patient?.personneConfiance?.telephone ||
+patient?.personneConfiance?.tel ||
+"",
+adresse:
+patient?.structuredIntake?.contacts?.personneConfiance?.adresse ||
+patient?.personneConfiance?.adresse ||
+"",
+};
+
+const personneAPrevenir = {
+nom:
+patient?.structuredIntake?.contacts?.personneAPrevenir?.nom ||
+patient?.personneAPrevenir?.nom ||
+"",
+prenom:
+patient?.structuredIntake?.contacts?.personneAPrevenir?.prenom ||
+patient?.personneAPrevenir?.prenom ||
+"",
+telephone:
+patient?.structuredIntake?.contacts?.personneAPrevenir?.telephone ||
+patient?.personneAPrevenir?.telephone ||
+patient?.personneAPrevenir?.tel ||
+"",
+lien:
+patient?.structuredIntake?.contacts?.personneAPrevenir?.lien ||
+patient?.personneAPrevenir?.lien ||
+"",
+};
+const trustedContact = {
+nom:
+patient?.personneConfiance?.nom ||
+patient?.contactConfianceNom ||
+"",
+prenom:
+patient?.personneConfiance?.prenom ||
+patient?.contactConfiancePrenom ||
+"",
+telephone:
+patient?.personneConfiance?.telephone ||
+patient?.personneConfiance?.tel ||
+patient?.contactConfianceTelephone ||
+"",
+adresse:
+patient?.personneConfiance?.adresse ||
+patient?.contactConfianceAdresse ||
+"",
+lien:
+patient?.personneConfiance?.lien ||
+patient?.contactConfianceLien ||
+"",
+};
+
+const activeIncident = incidents.find(
+(i) =>
+String(i.patientId) === String(patient?.id) &&
+String(i.status || "").toLowerCase() !== "closed"
+) || null;
+const closedIncidents = incidents.filter(
+(i) =>
+String(i.patientId) === String(patient?.id) &&
+String(i.status) === "closed"
+);
 const incident = useMemo(() => {
 if (!patient) return null;
-return incidents.find((i) => String(i.patientId) === String(patient.id)) || null;
+return incidents.find(
+(i) =>
+String(i.patientId) === String(patient.id) &&
+String(i.status || "").toLowerCase() !== "closed"
+) || null;
 }, [incidents, patient]);
 
 const allPatients = useMemo(() => {
@@ -1025,6 +1269,10 @@ const autoSummary = buildStaffAutoSummary(patient);
 const priority = getStaffPriority(patient);
 const suggestions = buildSmartSuggestions(patient, report);
 const serviceIndicators = buildServiceIndicators(patient, allPatients);
+const immediateActions = getImmediateActions(patient);
+const recueilItems = getRecueilItems(patient);
+const autoAnalysisItems = getAutoAnalysisItems(patient);
+const decisionItems = getDecisionItems(patient);
 
 const persistCurrentReport = (overrides = {}) => {
 writeReport(patient.id, {
@@ -1277,16 +1525,7 @@ status: "done",
 });
 };
 
-const closeIncident = () => {
-setUiField("found", true);
-closeIncidentForPatient(incident.id, "Service", {
-found: true,
-foundAt: new Date().toISOString(),
-foundLocation: incidentUi.foundLocation || "Établissement",
-finalStatus: "Patient retrouvé",
-comment: incidentUi.finalComment || "",
-});
-};
+
 
 const summaryDescription = [
 ...incidentUi.descriptionTags,
@@ -1339,26 +1578,52 @@ incident?.status === "closed"
 : "";
 
 const menuItems = [
-{ id: "synthese", label: "Synthèse", badge: risk.label },
-{ id: "incident", label: "Incident", badge: incidentBadge },
-{ id: "maintenant", label: "À faire maintenant", badge: nextDeadline ? "À poser" : "" },
-{ id: "sortie", label: "Pilotage sortie", badge: targetDate ? formatShortDate(targetDate) : "Sans date" },
-{ id: "alertes", label: "Alertes", badge: String(alerts.length) },
-{ id: "parcours", label: "Parcours", badge: `J+${los}` },
-{
-id: "vulnerabilite",
-label: "Vulnérabilité",
-badge: isVulnerable(patient)
-? String(safeArray(patient?.vulnerability?.criteria).length || safeArray(patient?.vulnerabilityProfiles).length)
-: "",
-},
-{ id: "coordonnees", label: "Coordonnées" },
+    { id: "synthese", label: "Synthèse", badge: risk.label },
+{ id: "contact", label: "contacts utiles" },
+    { id: "incident", label: "Incident", badge: incidentBadge },
 { id: "staff", label: "Staff", badge: savedAt ? "Historisé" : "Brouillon" },
 { id: "plan", label: "Plan d’action", badge: String(inProgressActions.length + blockedActions.length) },
 { id: "ressources", label: "Ressources", badge: String(Array.isArray(patient.resourceFollowUp) ? patient.resourceFollowUp.length : 0) },
 { id: "documents", label: "Documents", badge: String(safeArray(patient.documents || patient.forms || patient.formulaires).length) },
 ];
+const statusMap = {
+created: { label: "Disparition déclarée", color: "red" },
+internal_search: { label: "Recherche interne", color: "amber" },
+security_investigation: { label: "Sécurité en cours", color: "amber" },
+director_decision: { label: "Décision direction", color: "blue" },
+closed: { label: "Clôturé", color: "green" },
+};
 
+const currentStatus = statusMap[incident?.status] || {
+label: incident?.status || "Inconnu",
+color: "neutral",
+};
+const elapsedMinutes = incident?.createdAt
+? Math.floor((Date.now() - new Date(incident.createdAt)) / 60000)
+: null;
+const incidentLabels = safeArray(incident?.incidentLog).map((evt) =>
+String(evt?.label || "").toLowerCase()
+);
+
+const patientCalledDone = incidentLabels.some((label) =>
+label.includes("appel patient")
+);
+
+const internalSearchDone = incidentLabels.some((label) =>
+label.includes("recherche interne")
+);
+
+const securityAlertDone = incidentLabels.some((label) =>
+label.includes("sécurité")
+);
+
+const directorAlertDone = incidentLabels.some((label) =>
+label.includes("directeur")
+);
+const serviceStepDone = patientCalledDone || internalSearchDone;
+const securityStepDone = securityAlertDone;
+const directionStepDone = directorAlertDone;
+const closureStepDone = incident?.status === "closed";
 return (
 <AppShell header={<AppHeader subtitle="Vue patient" />}>
 <div
@@ -1382,17 +1647,34 @@ marginBottom: 18,
 <PatientIdentityBar
 patient={patient}
 actions={
+    
 <>
+{incident ? (
 <button
 type="button"
 className="pv-btn danger"
-onClick={launchIncident}
+onClick={() => navigate(`/incident/${patient.id}`)}
+style={{
+boxShadow: "0 8px 18px rgba(185, 28, 28, 0.12)",
+}}
+>
+🚨 Ouvrir disparition
+</button>
+) : (
+<button
+type="button"
+className="pv-btn danger"
+onClick={() => {
+createIncidentForPatient(patient);
+navigate(`/incident/${patient.id}`);
+}}
 style={{
 boxShadow: "0 8px 18px rgba(185, 28, 28, 0.12)",
 }}
 >
 🚨 Déclarer disparition
 </button>
+)}
 
 <button
 type="button"
@@ -1414,287 +1696,29 @@ Ouvrir copilote
 />
 </div>
 
-{incident ? (
-<SectionCard
-title="Disparition / sortie à l’insu"
-subtitle="Pilotage terrain structuré pour le service, le PC sécurité et le directeur de garde."
+{activeIncident && (
+<div
 style={{
-marginBottom: 18,
+background: "#fee2e2",
 border: "1px solid #fecaca",
-background: "linear-gradient(180deg, #fff8f8 0%, #fff1f2 100%)",
-}}
-actions={
-<>
-<StatusChip color={incident.status === "closed" ? "green" : "red"}>
-{incident.status === "closed" ? "Incident clôturé" : `Statut ${incident.status}`}
-</StatusChip>
-<StatusChip color="amber">
-Dernière vue {incidentUi.lastSeenLocation || patient.service || "à préciser"}
-</StatusChip>
-</>
-}
->
-<div
-style={{
-display: "grid",
-gridTemplateColumns: "1.2fr 1fr",
-gap: 16,
-alignItems: "start",
+padding: 14,
+borderRadius: 14,
+marginBottom: 16,
 }}
 >
-<div style={{ display: "grid", gap: 16 }}>
-<IncidentChecklist
-title="Contexte de disparition"
-subtitle="Permet de cadrer rapidement la situation initiale."
-items={DISAPPEARANCE_CONTEXT_OPTIONS}
-values={incidentUi.contextTags}
-onToggle={(value) => toggleUiTag("contextTags", value)}
-color="blue"
-/>
-
-<IncidentChecklist
-title="Vulnérabilité / fragilité"
-subtitle="Éléments utiles pour prioriser les recherches."
-items={VULNERABILITY_OPTIONS}
-values={incidentUi.vulnerabilityTags}
-onToggle={(value) => toggleUiTag("vulnerabilityTags", value)}
-color="purple"
-/>
-
-<IncidentChecklist
-title="Dangerosité / risque médical"
-subtitle="À transmettre clairement au PC sécurité et au décideur."
-items={MEDICAL_DANGER_OPTIONS}
-values={incidentUi.dangerTags}
-onToggle={(value) => toggleUiTag("dangerTags", value)}
-color="red"
-/>
-
-<IncidentChecklist
-title="Description utile"
-subtitle="Description simple, rapide, exploitable par les recherches."
-items={DESCRIPTION_CRITERIA_OPTIONS}
-values={incidentUi.descriptionTags}
-onToggle={(value) => toggleUiTag("descriptionTags", value)}
-color="green"
-/>
-
-<div
-style={{
-border: "1px solid #edf2f7",
-background: "#fbfcfe",
-borderRadius: 18,
-padding: 16,
-}}
->
-<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-<label style={{ display: "grid", gap: 6 }}>
-<span className="pv-label">Dernier lieu vu</span>
-<input
-className="pv-input"
-value={incidentUi.lastSeenLocation}
-onChange={(e) => setUiField("lastSeenLocation", e.target.value)}
-placeholder="Ex : chambre 200 / couloir / hall"
-/>
-</label>
-<label style={{ display: "grid", gap: 6 }}>
-<span className="pv-label">Dernière heure connue</span>
-<input
-type="datetime-local"
-className="pv-input"
-value={incidentUi.lastSeenAt}
-onChange={(e) => setUiField("lastSeenAt", e.target.value)}
-/>
-</label>
+<div style={{ fontWeight: 700 }}>
+🚨 Incident en cours
 </div>
 
-<label style={{ display: "grid", gap: 6, marginBottom: 12 }}>
-<span className="pv-label">Tenue / éléments distinctifs</span>
-<input
-className="pv-input"
-value={incidentUi.clothingDetails}
-onChange={(e) => setUiField("clothingDetails", e.target.value)}
-placeholder="Ex : pyjama bleu, lunettes, pantoufles"
-/>
-</label>
-
-<label style={{ display: "grid", gap: 6 }}>
-<span className="pv-label">Description libre complémentaire</span>
-<textarea
-className="pv-textarea"
-value={incidentUi.freeDescription}
-onChange={(e) => setUiField("freeDescription", e.target.value)}
-placeholder="Description utile pour la sécurité, sans texte long inutile."
-/>
-</label>
-</div>
-
-<div
-style={{
-border: "1px solid #e5e7eb",
-background: "#ffffff",
-borderRadius: 18,
-padding: 16,
-}}
->
-<div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", marginBottom: 10 }}>
-Synthèse opérationnelle transmise
-</div>
-<div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6 }}>
-<strong>Contexte :</strong> {incidentUi.contextTags.join(" • ") || "Non précisé"}
-<br />
-<strong>Vulnérabilité :</strong> {incidentUi.vulnerabilityTags.join(" • ") || "Non précisée"}
-<br />
-<strong>Danger :</strong> {incidentUi.dangerTags.join(" • ") || "Non précisé"}
-<br />
-<strong>Description :</strong> {summaryDescription || "Non précisée"}
+<div style={{ fontSize: 13, color: "#7f1d1d" }}>
+Disparition en cours
+{activeIncident.createdAt &&
+!Number.isNaN(new Date(activeIncident.createdAt).getTime())
+? ` — déclenchée à ${new Date(activeIncident.createdAt).toLocaleTimeString()}`
+: ""}
 </div>
 </div>
-</div>
-
-<div style={{ display: "grid", gap: 16 }}>
-<IncidentChecklist
-title="Recherche interne"
-subtitle="Check rapide des zones de proximité."
-items={INTERNAL_SEARCH_ZONES}
-values={incidentUi.internalZones}
-onToggle={(value) => toggleUiTag("internalZones", value)}
-color="blue"
-/>
-
-<IncidentChecklist
-title="Recherche élargie / sécurité"
-subtitle="Zones ou axes à valider avec le PC sécurité."
-items={EXTENDED_SEARCH_ZONES}
-values={incidentUi.extendedZones}
-onToggle={(value) => toggleUiTag("extendedZones", value)}
-color="amber"
-/>
-
-<div
-style={{
-border: "1px solid #edf2f7",
-background: "#fbfcfe",
-borderRadius: 18,
-padding: 16,
-}}
->
-<div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", marginBottom: 10 }}>
-Actions immédiates
-</div>
-
-<div style={{ display: "grid", gap: 10 }}>
-<button type="button" className="pv-btn ghost" onClick={markInternalSearch}>
-🔍 Valider recherche interne
-</button>
-
-<button type="button" className="pv-btn ghost" onClick={markPhoneCall}>
-📞 Patient appelé
-</button>
-
-<button type="button" className="pv-btn ghost" onClick={markFamilyContact}>
-👥 Personne de confiance / entourage contacté
-</button>
-
-<button type="button" className="pv-btn ghost" onClick={alertSecurity}>
-🛡️ Alerter PC sécurité
-</button>
-
-<button type="button" className="pv-btn ghost" onClick={alertDirector}>
-👨‍⚖️ Alerter directeur de garde
-</button>
-
-<label
-style={{
-display: "flex",
-alignItems: "center",
-gap: 10,
-fontSize: 13,
-color: "#334155",
-paddingTop: 6,
-}}
->
-<input
-type="checkbox"
-checked={incidentUi.policeConsidered}
-onChange={(e) => setUiField("policeConsidered", e.target.checked)}
-/>
-Forces de l’ordre envisagées / à discuter
-</label>
-</div>
-</div>
-
-<div
-style={{
-border: "1px solid #edf2f7",
-background: "#ffffff",
-borderRadius: 18,
-padding: 16,
-}}
->
-<div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", marginBottom: 10 }}>
-Issue / clôture
-</div>
-
-<div style={{ display: "grid", gap: 12 }}>
-<label style={{ display: "grid", gap: 6 }}>
-<span className="pv-label">Lieu de retrouvaille / issue</span>
-<input
-className="pv-input"
-value={incidentUi.foundLocation}
-onChange={(e) => setUiField("foundLocation", e.target.value)}
-placeholder="Ex : établissement, parking, domicile, voie publique"
-/>
-</label>
-
-<label style={{ display: "grid", gap: 6 }}>
-<span className="pv-label">Commentaire final</span>
-<textarea
-className="pv-textarea"
-value={incidentUi.finalComment}
-onChange={(e) => setUiField("finalComment", e.target.value)}
-placeholder="Synthèse courte de l’issue."
-/>
-</label>
-
-<button type="button" className="pv-btn primary" onClick={closeIncident}>
-✅ Clôturer l’incident
-</button>
-</div>
-</div>
-
-<div
-style={{
-border: "1px solid #e5e7eb",
-background: "#ffffff",
-borderRadius: 18,
-padding: 16,
-}}
->
-<div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", marginBottom: 10 }}>
-Journal horodaté
-</div>
-
-<div style={{ fontSize: 13 }}>
-{safeArray(incident.incidentLog).map((evt) => (
-<div
-key={evt.id}
-style={{
-padding: "8px 0",
-borderBottom: "1px solid #f1f5f9",
-color: "#334155",
-}}
->
-<strong>{new Date(evt.at).toLocaleTimeString()}</strong> — {evt.label} ({evt.by})
-</div>
-))}
-</div>
-</div>
-</div>
-</div>
-</SectionCard>
-) : null}
-
+)}
 <div
 style={{
 display: "grid",
@@ -1770,6 +1794,13 @@ fontWeight: 800,
 <main className="pv-main" style={{ display: "grid", gap: 18 }}>
 {activeSection === "synthese" ? (
 <div className="pv-section-anchor">
+    <SectionCard
+title="Données du recueil"
+subtitle="Informations issues du recueil DPI / terrain"
+className="pv-card--nested"
+>
+<InfoGrid columns={3} items={recueilItems} />
+</SectionCard>
 <SectionCard
 title="Synthèse"
 subtitle="Vue d’ensemble synthétique pour compréhension rapide avant détail."
@@ -1836,7 +1867,7 @@ border: "1px solid #e5e7eb",
 background: "#ffffff",
 }}
 >
-<div className="pv-label">Date cible</div>
+<div className="pv-label">Date cible de sorite</div>
 <div style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", marginBottom: 8 }}>
 {targetDate ? formatShortDate(targetDate) : "—"}
 </div>
@@ -1862,6 +1893,24 @@ items={[
 ]}
 />
 
+
+
+<SectionCard
+title="Analyse automatique"
+subtitle="Lecture générée à partir des données disponibles"
+className="pv-card--nested"
+>
+<InfoGrid columns={3} items={autoAnalysisItems} />
+</SectionCard>
+
+<SectionCard
+title="Décision de sortie"
+subtitle="Lecture claire de la décision en cours"
+className="pv-card--nested"
+>
+<InfoGrid columns={3} items={decisionItems} />
+</SectionCard>
+
 <SectionCard title="Indicateurs du service" subtitle="Vision macro du service autour du patient courant." className="pv-card--nested">
 <InfoGrid
 columns={5}
@@ -1875,6 +1924,35 @@ items={[
 />
 </SectionCard>
 
+<SectionCard
+title="Personne de confiance"
+subtitle="Informations issues du DPI"
+>
+<InfoGrid
+columns={2}
+items={[
+{
+label: "Nom / prénom",
+value:
+[trustedContact.prenom, trustedContact.nom]
+.filter(Boolean)
+.join(" ") || "Non renseigné",
+},
+{
+label: "Téléphone",
+value: trustedContact.telephone || "Non renseigné",
+},
+{
+label: "Adresse",
+value: trustedContact.adresse || "Non renseignée",
+},
+{
+label: "Lien",
+value: trustedContact.lien || "Non renseigné",
+},
+]}
+/>
+</SectionCard>
 <SectionCard title="Synthèse staff" subtitle="Version courte de ce qui sera présenté ou repris en staff." className="pv-card--nested">
 <div className="pv-staff-read">
 <div className="pv-staff-read__line"><strong>Synthèse :</strong> {report.infos || "À définir"}</div>
@@ -1883,7 +1961,54 @@ items={[
 <div className="pv-staff-read__line"><strong>Vigilance :</strong> {report.vigilances || "Non renseignée"}</div>
 </div>
 </SectionCard>
-
+<SectionCard
+title="Contacts utiles"
+subtitle="Informations issues du DPI"
+>
+<InfoGrid
+columns={2}
+items={[
+{
+label: "Personne de confiance",
+value:
+[personneConfiance.prenom, personneConfiance.nom]
+.filter(Boolean)
+.join(" ") || "Non renseigné",
+},
+{
+label: "Téléphone confiance",
+value: personneConfiance.telephone || "Non renseigné",
+},
+{
+label: "Adresse confiance",
+value: personneConfiance.adresse || "Non renseignée",
+},
+{
+label: "Lien confiance",
+value: personneConfiance.lien || "Non renseigné",
+},
+{
+label: "Personne à prévenir",
+value:
+[personneAPrevenir.prenom, personneAPrevenir.nom]
+.filter(Boolean)
+.join(" ") || "Non renseigné",
+},
+{
+label: "Téléphone à prévenir",
+value: personneAPrevenir.telephone || "Non renseigné",
+},
+{
+label: "Adresse à prévenir",
+value: personneAPrevenir.adresse || "Non renseignée",
+},
+{
+label: "Lien à prévenir",
+value: personneAPrevenir.lien || "Non renseigné",
+},
+]}
+/>
+</SectionCard>
 <SectionCard title="Plan d’action résumé" subtitle="Lecture courte sans empiéter sur le copilote." className="pv-card--nested">
 <InfoGrid
 columns={3}
@@ -1899,134 +2024,128 @@ items={[
 </div>
 ) : null}
 
+
+
+{activeSection === "contact" ? (
+<div className="pv-section-anchor">
+<SectionCard
+title="Contacts utiles"
+subtitle="Informations issues du DPI"
+>
+<InfoGrid
+columns={2}
+items={[
+{
+label: "Personne de confiance",
+value:
+[personneConfiance.prenom, personneConfiance.nom]
+.filter(Boolean)
+.join(" ") || "Non renseigné",
+},
+{
+label: "Téléphone confiance",
+value: personneConfiance.telephone || "Non renseigné",
+},
+{
+label: "Adresse confiance",
+value: personneConfiance.adresse || "Non renseignée",
+},
+{
+label: "Lien confiance",
+value: personneConfiance.lien || "Non renseigné",
+},
+{
+label: "Personne à prévenir",
+value:
+[personneAPrevenir.prenom, personneAPrevenir.nom]
+.filter(Boolean)
+.join(" ") || "Non renseigné",
+},
+{
+label: "Téléphone à prévenir",
+value: personneAPrevenir.telephone || "Non renseigné",
+},
+{
+label: "Adresse à prévenir",
+value: personneAPrevenir.adresse || "Non renseignée",
+},
+{
+label: "Lien à prévenir",
+value: personneAPrevenir.lien || "Non renseigné",
+},
+]}
+/>
+</SectionCard>
+</div>
+) : null}
 {activeSection === "incident" ? (
 <div className="pv-section-anchor">
-{incident ? (
-<SectionCard
-title="Pilotage disparition"
-subtitle="Vue focalisée incident pour les actions terrain."
->
-<div style={{ fontSize: 14, color: "#334155", lineHeight: 1.7 }}>
-Utilise le bloc incident en haut de page pour piloter la description, les recherches,
-l’alerte sécurité et la clôture.
-</div>
-</SectionCard>
-) : (
 <SectionCard
 title="Incident"
-subtitle="Aucun incident actif pour ce patient."
+subtitle="La gestion détaillée de disparition est maintenant séparée de la fiche patient."
 actions={
-<button type="button" className="pv-btn danger" onClick={launchIncident}>
-🚨 Déclarer disparition
+incident ? (
+<button
+type="button"
+className="pv-btn danger"
+onClick={() => navigate(`/incident/${patient.id}`)}
+>
+Ouvrir la vue disparition
 </button>
+) : (
+<button
+type="button"
+className="pv-btn danger"
+onClick={() => {
+createIncidentForPatient(patient);
+navigate(`/incident/${patient.id}`);
+}}
+>
+Déclarer disparition
+</button>
+)
 }
 >
-<div style={{ fontSize: 14, color: "#64748b" }}>
-Lance un incident pour afficher le workflow complet service / sécurité / direction.
+<div style={{ display: "grid", gap: 12 }}>
+<div style={{ fontSize: 14, color: "#334155", lineHeight: 1.7 }}>
+La fiche patient garde une vue clinique et de pilotage du parcours.
+La gestion opérationnelle de disparition est pilotée dans une vue dédiée.
 </div>
-</SectionCard>
+
+{incident ? (
+<div
+style={{
+border: "1px solid #fecaca",
+background: "#fff7f7",
+borderRadius: 16,
+padding: 14,
+display: "grid",
+gap: 8,
+}}
+>
+<div style={{ fontWeight: 800, color: "#991b1b" }}>
+Incident actif
+</div>
+<div style={{ fontSize: 13, color: "#334155" }}>
+Statut : {incident.status || "En cours"}
+</div>
+<div style={{ fontSize: 13, color: "#334155" }}>
+Créé le : {incident.createdAt ? formatShortDateTime(incident.createdAt) : "—"}
+</div>
+<div style={{ fontSize: 13, color: "#334155" }}>
+Actions tracées : {safeArray(incident.incidentLog).length}
+</div>
+</div>
+) : (
+<div style={{ fontSize: 14, color: "#64748b" }}>
+Aucun incident actif pour ce patient.
+</div>
 )}
 </div>
-) : null}
-
-{activeSection === "maintenant" ? (
-<div className="pv-section-anchor">
-<SectionCard
-title="Quoi faire maintenant"
-subtitle="Orientation de lecture et de décision. Le pilotage détaillé reste dans le copilote."
-actions={
-<>
-<StatusChip color="amber">Porteur : {safe(nextOwner)}</StatusChip>
-<StatusChip color={nextDeadline ? "blue" : "neutral"}>
-Échéance : {nextDeadline ? formatShortDate(nextDeadline) : "à poser"}
-</StatusChip>
-</>
-}
->
-<div className="pv-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-<div className="pv-item"><div className="pv-label">Décision attendue</div><div className="pv-value">{getBlockageLabel(patient) !== "Non défini" ? `Arbitrer / lever ${getBlockageLabel(patient)}` : safe(getSolutionLabel(patient), "À arbitrer")}</div></div>
-<div className="pv-item"><div className="pv-label">Prochain jalon</div><div className="pv-value">{nextDeadline ? `Point attendu avant le ${formatShortDate(nextDeadline)}` : "Poser une échéance"}</div></div>
-</div>
-<div className="pv-inline-note">Le suivi opérationnel détaillé des actions reste dans le copilote.</div>
 </SectionCard>
 </div>
 ) : null}
 
-{activeSection === "sortie" ? (
-<div className="pv-section-anchor">
-<SectionCard
-title="Pilotage de sortie"
-subtitle="Vision condensée du statut de sortie."
-actions={
-<>
-<StatusChip color={targetDate ? targetStatus.color : "neutral"}>Date cible {targetDate ? formatShortDate(targetDate) : "non définie"}</StatusChip>
-<StatusChip color={decisionStatus.color}>{decisionStatus.label}</StatusChip>
-<StatusChip color={isMedicalReady(patient) ? "blue" : "neutral"}>{isMedicalReady(patient) ? "Sort Med" : "Non Sort Med"}</StatusChip>
-</>
-}
->
-<InfoGrid
-columns={2}
-items={[
-{ label: "Solution actuelle", value: getSolutionLabel(patient) },
-{ label: "Blocage principal", value: getBlockageLabel(patient) },
-{ label: "Date cible", value: formatShortDate(targetDate) },
-{ label: "Date validée", value: patient?.dischargePlanning?.targetDateValidated ? "Oui" : "Non" },
-{ label: "Récupérable", value: isMedicalReady(patient) && (targetDate || patient?.dischargePlanning?.solutionFound) ? "Oui" : "Non" },
-{ label: "Sort Med", value: isMedicalReady(patient) ? "Oui" : "Non" },
-]}
-/>
-</SectionCard>
-</div>
-) : null}
-
-{activeSection === "alertes" ? (
-<div className="pv-section-anchor">
-<SectionCard title="Alertes" subtitle="Signaux triés par priorité.">
-<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-{alerts.sort((a, b) => {
-const weight = { red: 3, amber: 2, purple: 2, blue: 1, green: 0, neutral: 0 };
-return (weight[b.color] || 0) - (weight[a.color] || 0);
-}).map((alert, index) => (
-<StatusChip key={`${alert.text}-${index}`} color={alert.color}>{alert.text}</StatusChip>
-))}
-{alerts.length === 0 ? <StatusChip color="green">Aucune alerte majeure</StatusChip> : null}
-</div>
-</SectionCard>
-</div>
-) : null}
-
-{activeSection === "parcours" ? <div className="pv-section-anchor"><TimelineCard patient={patient} /></div> : null}
-{activeSection === "vulnerabilite" ? <div className="pv-section-anchor"><VulnerabilityCard patient={patient} /></div> : null}
-
-{activeSection === "coordonnees" ? (
-<div className="pv-section-anchor">
-<SectionCard title="Coordonnées et relais" subtitle="Professionnels et contacts utiles.">
-<InfoGrid
-columns={2}
-items={[
-{ label: "Personne de confiance", value: patient.personneConfiance },
-{ label: "À prévenir", value: patient.personneAPrevenir },
-{ label: "Médecin", value: patient.medecin },
-{ label: "IDE", value: patient.ide },
-{ label: "Cadre", value: patient.cadre },
-{ label: "AS", value: patient.as },
-]}
-/>
-</SectionCard>
-<SectionCard title="Repères de vie" subtitle="Contexte personnel et éléments de vie.">
-<InfoGrid
-columns={2}
-items={[
-{ label: "Ville", value: patient.city || patient.ville || patient.adresse?.city },
-{ label: "Adresse", value: `${patient.adresse?.street || ""} ${patient.adresse?.postalCode || ""} ${patient.adresse?.city || ""}`.trim() },
-{ label: "Contexte", value: patient.status || patient.statut },
-{ label: "Gravité", value: patient.gravite || patient.severity },
-]}
-/>
-</SectionCard>
-</div>
-) : null}
 
 {activeSection === "staff" ? (
 <div className="pv-section-anchor">
@@ -2141,7 +2260,48 @@ staffHistory.map((entry) => (
 <ListCard title="Historique HDJ" subtitle="Séquences programmées ou passées." emptyLabel="Aucune séquence HDJ" items={Array.isArray(patient.hdjHistory) ? patient.hdjHistory : []} />
 </div>
 ) : null}
+{activeSection === "incidents" && (
+<div className="pv-section-anchor">
+<ListCard title="🧾 Historique des incidents">
 
+{closedIncidents.length === 0 ? (
+<div style={{ color: "#64748b" }}>
+Aucun incident clôturé
+</div>
+) : (
+closedIncidents.map((inc) => (
+<div
+key={inc.id}
+style={{
+border: "1px solid #e2e8f0",
+borderRadius: 12,
+padding: 12,
+marginBottom: 10,
+background: "#f8fafc",
+}}
+>
+<div style={{ fontWeight: 600 }}>
+Incident #{inc.id}
+</div>
+
+<div style={{ fontSize: 13, color: "#475569" }}>
+📅 {new Date(inc.closedAt).toLocaleString()}
+</div>
+
+<div style={{ fontSize: 13 }}>
+📍 {inc.workflow?.foundLocation || "Non renseigné"}
+</div>
+
+<div style={{ fontSize: 13 }}>
+📝 {inc.workflow?.finalComment || "Pas de commentaire"}
+</div>
+</div>
+))
+)}
+
+</ListCard>
+</div>
+)}
 {activeSection === "documents" ? (
 <div className="pv-section-anchor">
 <ListCard title="Documents / formulaires liés" subtitle="Demandes ou dossiers associés au parcours." emptyLabel="Aucun document associé" items={safeArray(patient.documents || patient.forms || patient.formulaires)} />
