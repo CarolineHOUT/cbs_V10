@@ -1,9 +1,14 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import AppHeader from "./components/AppHeader";
 import { AppShell } from "./components/AppShell";
 import { usePatientSimulation } from "./context/PatientSimulationContext";
 import { HOSPITAL_SERVICES } from "./data/hospitalServices";
+import { AdminUsers } from "./views/AdminUsers";
+import { HOSPITAL_BEDS } from "./data/hospitalBeds";
+
+import SignatureCanvas from "react-signature-canvas";
+
 
 function safeArray(value) {
 return Array.isArray(value) ? value : value ? [value] : [];
@@ -174,7 +179,8 @@ if (normalizedBlock.includes("retour a domicile")) {
 return "Retour domicile non sécurisé";
 }
 if (normalizedSolution.includes("hdj")) return "HDJ à construire / sécuriser";
-if (normalizedSolution.includes("ehpad")) return "Orientation EHPAD à sécuriser";
+if (normalizedSolution.includes("ehpad"))
+return "Orientation EHPAD à sécuriser";
 if (normalizedSolution.includes("smr")) return "Orientation SMR à sécuriser";
 if (block && block !== "Non défini") return block;
 if (solution && solution !== "Aucune") return `Parcours ${solution}`;
@@ -380,10 +386,6 @@ function isUnstablePath(patient) {
 return getMovementCount(patient) >= 3;
 }
 
-function isStagnation(patient) {
-return getLengthOfStay(patient) >= 10 && !isMedicalReady(patient);
-}
-
 function isDirectionPriorityPatient(patient, incidents = []) {
 return (
 isComplexPatient(patient) ||
@@ -524,7 +526,7 @@ gap: 6,
 cursor: "pointer",
 textAlign: "left",
 boxShadow: active ? `0 10px 24px rgba(23,55,106,.12)` : tone.shadow,
-minHeight: strong ? 108 : 96,
+minHeight: 110,
 minWidth: 0,
 overflow: "hidden",
 };
@@ -565,7 +567,245 @@ border: "1px solid #e6ebf2",
 };
 }
 
-export default function Dashboard() {
+const BED_STATUSES = {
+AVAILABLE: "available",
+OCCUPIED: "occupied",
+BLOCKED: "blocked",
+RESERVED: "reserved",
+ISOLATION: "isolation",
+};
+
+const BED_BLOCK_REASONS = {
+REPAIR: "repair",
+SCHEDULED_ADMISSION: "scheduled_admission",
+ISOLATION: "isolation",
+};
+
+const BED_REASON_OPTIONS = [
+{ value: BED_BLOCK_REASONS.REPAIR, label: "Réparation" },
+{ value: BED_BLOCK_REASONS.SCHEDULED_ADMISSION, label: "Entrée programmée" },
+{ value: BED_BLOCK_REASONS.ISOLATION, label: "Précaution / isolement" },
+];
+
+function formatDateTimeLocal(value) {
+if (!value) return "";
+const date = new Date(value);
+if (Number.isNaN(date.getTime())) return "";
+const pad = (n) => String(n).padStart(2, "0");
+
+return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+date.getDate()
+)}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatDateTimeDisplay(value) {
+if (!value) return "—";
+const date = new Date(value);
+if (Number.isNaN(date.getTime())) return "—";
+return date.toLocaleString("fr-FR");
+}
+
+function isWithin48Hours(value) {
+if (!value) return false;
+const date = new Date(value);
+if (Number.isNaN(date.getTime())) return false;
+
+const now = Date.now();
+const max = now + 48 * 60 * 60 * 1000;
+
+return date.getTime() >= now && date.getTime() <= max;
+}
+
+function normalizeBedLabel(value) {
+const v = normalizeText(value);
+
+if (!v) return "";
+if (v === "p" || v.includes("porte")) return "P";
+if (v === "f" || v.includes("fen")) return "F";
+if (v === "a") return "P";
+if (v === "b") return "F";
+if (v === "lit") return "L";
+return String(value || "").trim().toUpperCase();
+}
+function normalizeRoomNumber(room) {
+if (!room) return "";
+
+const r = String(room).trim();
+
+// 👉 mapping simple pour ton cas actuel
+// (on aligne les chambres 200+ sur les chambres réelles)
+
+const mapping = {
+"200": "205",
+"201": "205",
+"202": "210",
+"203": "210",
+"204": "302",
+"205": "302",
+"206": "303",
+"207": "303",
+"208": "304",
+"209": "304",
+};
+
+return mapping[r] || r;
+}
+
+function getPatientBedMapKey(roomNumber, bedLabel) {
+const room = normalizeRoomNumber(roomNumber);
+const bed = normalizeBedLabel(bedLabel);
+
+if (!room || !bed) return "";
+
+return `${room}::${bed}`;
+}
+
+
+function buildPatientBedMap(patients = []) {
+return safeArray(patients).reduce((acc, patient) => {
+const room = String(patient?.chambre || "").trim();
+const bed = normalizeBedLabel(patient?.lit);
+if (!room || !bed) return acc;
+acc[`${room}::${bed}`] = patient;
+return acc;
+}, {});
+}
+
+function buildInitialBedStates(bedConfig = []) {
+const output = {};
+
+safeArray(bedConfig).forEach((serviceItem) => {
+safeArray(serviceItem?.rooms).forEach((room) => {
+safeArray(room?.beds).forEach((bed) => {
+output[bed.bedId] = {
+status: BED_STATUSES.AVAILABLE,
+reason: "",
+startAt: "",
+endAt: "",
+note: "",
+updatedAt: "",
+history: [],
+};
+});
+});
+});
+
+return output;
+}
+
+function getBedComputedStatus(bedState, linkedPatient) {
+if (linkedPatient) return BED_STATUSES.OCCUPIED;
+if (bedState?.status === BED_STATUSES.BLOCKED) return BED_STATUSES.BLOCKED;
+if (bedState?.status === BED_STATUSES.RESERVED) return BED_STATUSES.RESERVED;
+if (bedState?.status === BED_STATUSES.ISOLATION) return BED_STATUSES.ISOLATION;
+return BED_STATUSES.AVAILABLE;
+}
+
+function getBedStatusLabel(status) {
+if (status === BED_STATUSES.AVAILABLE) return "Disponible";
+if (status === BED_STATUSES.OCCUPIED) return "Occupé";
+if (status === BED_STATUSES.BLOCKED) return "Bloqué";
+if (status === BED_STATUSES.RESERVED) return "Entrée programmée";
+if (status === BED_STATUSES.ISOLATION) return "Isolement";
+return "Inconnu";
+}
+
+function getBedStatusColor(status) {
+if (status === BED_STATUSES.AVAILABLE) return "green";
+if (status === BED_STATUSES.OCCUPIED) return "neutral";
+if (status === BED_STATUSES.BLOCKED) return "red";
+if (status === BED_STATUSES.RESERVED) return "blue";
+if (status === BED_STATUSES.ISOLATION) return "purple";
+return "neutral";
+}
+
+function getBedReasonLabel(reason) {
+if (reason === BED_BLOCK_REASONS.REPAIR) return "Réparation";
+if (reason === BED_BLOCK_REASONS.SCHEDULED_ADMISSION) return "Entrée programmée";
+if (reason === BED_BLOCK_REASONS.ISOLATION) return "Précaution / isolement";
+return "—";
+}
+
+function isBedRecoverableWithin48h(bedState, linkedPatient) {
+if (
+(bedState?.status === BED_STATUSES.BLOCKED ||
+bedState?.status === BED_STATUSES.ISOLATION) &&
+isWithin48Hours(bedState?.endAt)
+) {
+return true;
+}
+
+if (linkedPatient) {
+const targetDate = getTargetDate(linkedPatient);
+if (isWithin48Hours(targetDate)) return true;
+}
+
+return false;
+}
+
+function isForecastBlockageWithin48h(bedState) {
+return (
+bedState?.status === BED_STATUSES.RESERVED &&
+isWithin48Hours(bedState?.startAt)
+);
+}
+
+function computeBedMetricsForService(serviceItem, bedStates, patientBedMap) {
+let totalBeds = 0;
+let availableBeds = 0;
+let occupiedBeds = 0;
+let blockedBeds = 0;
+let reservedBeds = 0;
+let isolationBeds = 0;
+let recoverable48h = 0;
+let forecastBlockages48h = 0;
+
+safeArray(serviceItem?.rooms).forEach((room) => {
+safeArray(room?.beds).forEach((bed) => {
+totalBeds += 1;
+
+const key = getPatientBedMapKey(room.roomNumber, bed.label);
+const linkedPatient = patientBedMap[key];
+const bedState = bedStates[bed.bedId] || {};
+const status = getBedComputedStatus(bedState, linkedPatient);
+
+if (status === BED_STATUSES.AVAILABLE) availableBeds += 1;
+if (status === BED_STATUSES.OCCUPIED) occupiedBeds += 1;
+if (status === BED_STATUSES.BLOCKED) blockedBeds += 1;
+if (status === BED_STATUSES.RESERVED) reservedBeds += 1;
+if (status === BED_STATUSES.ISOLATION) isolationBeds += 1;
+
+if (isBedRecoverableWithin48h(bedState, linkedPatient)) {
+recoverable48h += 1;
+}
+
+if (isForecastBlockageWithin48h(bedState)) {
+forecastBlockages48h += 1;
+}
+});
+});
+
+return {
+totalBeds,
+availableBeds,
+occupiedBeds,
+blockedBeds,
+reservedBeds,
+isolationBeds,
+recoverable48h,
+forecastBlockages48h,
+};
+}
+
+function getBedShortLabel(label, roomType) {
+const normalized = normalizeBedLabel(label);
+if (roomType === "single" || normalized === "L") return "";
+return normalized;
+}
+
+export default function Dashboard({ user, onLogout }) {
+const [view, setView] = useState("dashboard");
+
 const simulation = usePatientSimulation();
 const { patients, updatePatient } = simulation;
 const createIncidentForPatient = simulation.createIncidentForPatient;
@@ -581,6 +821,35 @@ const [activeFilter, setActiveFilter] = useState("all");
 const [consultedIds, setConsultedIds] = useState(() => new Set());
 const [mode, setMode] = useState("service");
 const [vulnPopoverId, setVulnPopoverId] = useState(null);
+const [vulnerabilityModalPatient, setVulnerabilityModalPatient] = useState(null);
+const [vulnerabilityForm, setVulnerabilityForm] = useState({
+criteria: [],
+consentAccepted: false,
+signerType: "patient",
+signerName: "",
+signedAt: "",
+photoDataUrl: "",
+photoTakenAt: "",
+comment: "",
+});
+const [vulnerabilityFormError, setVulnerabilityFormError] = useState("");
+const [cameraStream, setCameraStream] = useState(null);
+
+const [bedStates, setBedStates] = useState(() =>
+buildInitialBedStates(HOSPITAL_BEDS)
+);
+
+
+const signatureRef = useRef(null);
+const videoRef = useRef(null);
+const [selectedBedMeta, setSelectedBedMeta] = useState(null);
+const [bedForm, setBedForm] = useState({
+reason: BED_BLOCK_REASONS.REPAIR,
+startAt: "",
+endAt: "",
+note: "",
+});
+const [bedFormError, setBedFormError] = useState("");
 
 const services = useMemo(
 () =>
@@ -676,6 +945,319 @@ return;
 createIncidentForPatient(patient);
 }
 
+function openVulnerabilityModal(patient) {
+const currentCriteria = safeArray(patient?.vulnerability?.criteria);
+const currentPhoto = patient?.vulnerabilityPhoto || {};
+
+stopCamera();
+
+setVulnerabilityModalPatient(patient);
+setVulnerabilityForm({
+criteria: currentCriteria,
+consentAccepted: Boolean(currentPhoto?.consent?.accepted),
+signerType: currentPhoto?.consent?.signerType || "patient",
+signerName: currentPhoto?.consent?.signerName || "",
+signedAt: currentPhoto?.consent?.signedAt || "",
+photoDataUrl: currentPhoto?.lastPhoto?.imageData || "",
+photoTakenAt: currentPhoto?.lastPhoto?.createdAt || "",
+comment: currentPhoto?.lastPhoto?.comment || "",
+});
+setVulnerabilityFormError("");
+
+setTimeout(() => {
+if (signatureRef.current) {
+signatureRef.current.clear();
+
+const existingSignature = currentPhoto?.consent?.signatureImage;
+if (existingSignature) {
+const img = new Image();
+img.onload = () => {
+const canvas = signatureRef.current.getCanvas();
+const ctx = canvas.getContext("2d");
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+};
+img.src = existingSignature;
+}
+}
+}, 0);
+}
+
+function closeVulnerabilityModal() {
+stopCamera();
+setVulnerabilityModalPatient(null);
+setVulnerabilityFormError("");
+if (signatureRef.current) {
+signatureRef.current.clear();
+}
+}
+
+async function startCamera() {
+try {
+stopCamera();
+setVulnerabilityFormError("");
+
+const stream = await navigator.mediaDevices.getUserMedia({
+video: { facingMode: "environment" },
+audio: false,
+});
+
+setCameraStream(stream);
+
+setTimeout(() => {
+if (videoRef.current) {
+videoRef.current.srcObject = stream;
+videoRef.current.play().catch(() => {});
+}
+}, 0);
+} catch (error) {
+setVulnerabilityFormError(
+"Impossible d’accéder à la caméra sur cet appareil."
+);
+}
+}
+
+function stopCamera() {
+if (videoRef.current?.srcObject) {
+videoRef.current.srcObject.getTracks().forEach((track) => track.stop());
+videoRef.current.srcObject = null;
+}
+
+if (cameraStream) {
+cameraStream.getTracks().forEach((track) => track.stop());
+setCameraStream(null);
+}
+}
+
+function capturePhotoFromVideo() {
+const videoElement = videoRef.current;
+if (!videoElement) return;
+
+const width = videoElement.videoWidth;
+const height = videoElement.videoHeight;
+if (!width || !height) {
+setVulnerabilityFormError("La caméra n’est pas prête.");
+return;
+}
+
+const canvas = document.createElement("canvas");
+canvas.width = width;
+canvas.height = height;
+
+const ctx = canvas.getContext("2d");
+ctx.drawImage(videoElement, 0, 0, width, height);
+
+const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+
+setVulnerabilityForm((prev) => ({
+...prev,
+photoDataUrl: dataUrl,
+photoTakenAt: new Date().toISOString(),
+}));
+
+stopCamera();
+}
+
+function saveVulnerabilityWorkflow() {
+if (!vulnerabilityModalPatient || typeof updatePatient !== "function") return;
+
+if (vulnerabilityForm.criteria.length === 0) {
+setVulnerabilityFormError("Sélectionne au moins un motif de vulnérabilité.");
+return;
+}
+
+if (!vulnerabilityForm.consentAccepted) {
+setVulnerabilityFormError("Le consentement est obligatoire.");
+return;
+}
+
+if (!vulnerabilityForm.signerName.trim()) {
+setVulnerabilityFormError("Le nom du signataire est obligatoire.");
+return;
+}
+
+if (!vulnerabilityForm.photoDataUrl) {
+setVulnerabilityFormError("La photo est obligatoire.");
+return;
+}
+
+if (!signatureRef.current || signatureRef.current.isEmpty()) {
+setVulnerabilityFormError("La signature est obligatoire.");
+return;
+}
+
+const signatureImage = signatureRef.current
+.getCanvas()
+.toDataURL("image/png");
+
+const now = new Date().toISOString();
+
+updatePatient(vulnerabilityModalPatient.id, {
+vulnerability: {
+...(vulnerabilityModalPatient?.vulnerability || {}),
+criteria: vulnerabilityForm.criteria,
+updatedAt: now,
+},
+isVulnerable: vulnerabilityForm.criteria.length > 0,
+vulnerabilityPhoto: {
+...(vulnerabilityModalPatient?.vulnerabilityPhoto || {}),
+hasPhoto: true,
+lastPhotoAt: vulnerabilityForm.photoTakenAt || now,
+consent: {
+accepted: vulnerabilityForm.consentAccepted,
+signerType: vulnerabilityForm.signerType,
+signerName: vulnerabilityForm.signerName.trim(),
+signedAt: vulnerabilityForm.signedAt || now,
+signatureImage,
+},
+lastPhoto: {
+imageData: vulnerabilityForm.photoDataUrl,
+createdAt: vulnerabilityForm.photoTakenAt || now,
+comment: vulnerabilityForm.comment || "",
+},
+photos: [
+...safeArray(vulnerabilityModalPatient?.vulnerabilityPhoto?.photos),
+{
+id: `photo-${vulnerabilityModalPatient.id}-${Date.now()}`,
+imageData: vulnerabilityForm.photoDataUrl,
+createdAt: vulnerabilityForm.photoTakenAt || now,
+comment: vulnerabilityForm.comment || "",
+consent: {
+accepted: vulnerabilityForm.consentAccepted,
+signerType: vulnerabilityForm.signerType,
+signerName: vulnerabilityForm.signerName.trim(),
+signedAt: vulnerabilityForm.signedAt || now,
+signatureImage,
+},
+},
+],
+},
+});
+
+closeVulnerabilityModal();
+}
+
+
+
+function openBedEditor(meta) {
+const currentState = bedStates[meta.bedId] || {};
+
+setSelectedBedMeta(meta);
+setBedForm({
+reason: currentState.reason || BED_BLOCK_REASONS.REPAIR,
+startAt: formatDateTimeLocal(
+currentState.startAt || new Date().toISOString()
+),
+endAt: formatDateTimeLocal(currentState.endAt || ""),
+note: currentState.note || "",
+});
+setBedFormError("");
+}
+
+function closeBedEditor() {
+setSelectedBedMeta(null);
+setBedFormError("");
+}
+
+function saveBedState() {
+if (!selectedBedMeta?.bedId) return;
+
+if (!bedForm.reason) {
+setBedFormError("Le motif est obligatoire.");
+return;
+}
+
+if (!bedForm.startAt) {
+setBedFormError("La date/heure de début est obligatoire.");
+return;
+}
+
+if (!bedForm.endAt) {
+setBedFormError("La date/heure de fin est obligatoire.");
+return;
+}
+
+const start = new Date(bedForm.startAt);
+const end = new Date(bedForm.endAt);
+
+if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+setBedFormError("Les dates saisies sont invalides.");
+return;
+}
+
+if (end.getTime() <= start.getTime()) {
+setBedFormError("La date/heure de fin doit être postérieure au début.");
+return;
+}
+
+let status = BED_STATUSES.BLOCKED;
+if (bedForm.reason === BED_BLOCK_REASONS.SCHEDULED_ADMISSION) {
+status = BED_STATUSES.RESERVED;
+}
+if (bedForm.reason === BED_BLOCK_REASONS.ISOLATION) {
+status = BED_STATUSES.ISOLATION;
+}
+
+setBedStates((prev) => {
+const current = prev[selectedBedMeta.bedId] || {};
+
+return {
+...prev,
+[selectedBedMeta.bedId]: {
+...current,
+status,
+reason: bedForm.reason,
+startAt: new Date(bedForm.startAt).toISOString(),
+endAt: new Date(bedForm.endAt).toISOString(),
+note: bedForm.note || "",
+updatedAt: new Date().toISOString(),
+history: [
+...safeArray(current.history),
+{
+type: "update",
+status,
+reason: bedForm.reason,
+startAt: new Date(bedForm.startAt).toISOString(),
+endAt: new Date(bedForm.endAt).toISOString(),
+note: bedForm.note || "",
+createdAt: new Date().toISOString(),
+},
+],
+},
+};
+});
+
+closeBedEditor();
+}
+
+function releaseBed(bedId) {
+setBedStates((prev) => {
+const current = prev[bedId] || {};
+
+return {
+...prev,
+[bedId]: {
+...current,
+status: BED_STATUSES.AVAILABLE,
+reason: "",
+startAt: "",
+endAt: "",
+note: "",
+updatedAt: new Date().toISOString(),
+history: [
+...safeArray(current.history),
+{
+type: "release",
+createdAt: new Date().toISOString(),
+},
+],
+},
+};
+});
+
+closeBedEditor();
+}
+
 const filteredPatients = useMemo(() => {
 const base = safeArray(patients).filter((patient) => {
 if (selectedServices.length && !selectedServices.includes(patient?.service)) {
@@ -761,9 +1343,24 @@ Boolean(getCurrentIncident(patient, incidents))
 
 const actionChips = [
 { key: "complex", label: "Complexes", count: totals.complex, color: "amber" },
-{ key: "recoverable", label: "Récupérables", count: totals.recoverable, color: "green" },
-{ key: "target", label: "Date cible", count: totals.targetDefined, color: "blue" },
-{ key: "vulnerable", label: "Vulnérables", count: totals.vulnerable, color: "purple" },
+{
+key: "recoverable",
+label: "Récupérables",
+count: totals.recoverable,
+color: "green",
+},
+{
+key: "target",
+label: "Date cible",
+count: totals.targetDefined,
+color: "blue",
+},
+{
+key: "vulnerable",
+label: "Vulnérables",
+count: totals.vulnerable,
+color: "purple",
+},
 { key: "incident", label: "Incidents", count: totals.incidents, color: "red" },
 ];
 
@@ -825,9 +1422,7 @@ return score(b) - score(a);
 }, [patients, selectedServices, services, incidents]);
 
 const directionSummary = useMemo(() => {
-const redServices = directionRows.filter(
-(row) => row.risk.color === "red"
-).length;
+const redServices = directionRows.filter((row) => row.risk.color === "red").length;
 const recoverableBeds = directionRows.reduce(
 (sum, row) => sum + row.recoverable,
 0
@@ -912,6 +1507,61 @@ getPatientPriorityScore(a, incidents)
 .sort((a, b) => a.service.localeCompare(b.service));
 }, [filteredPatients, incidents]);
 
+
+
+const patientBedMap = useMemo(() => buildPatientBedMap(patients), [patients]);
+
+console.log(
+"PATIENTS MP1",
+patients.filter((p) => p.service === "Médecine Polyvalente 1")
+);
+
+console.log("PATIENT BED MAP", patientBedMap);
+
+console.log(
+"HOSPITAL_BEDS MP1",
+HOSPITAL_BEDS.find((s) => s.serviceLabel === "Médecine Polyvalente 1")
+);
+
+const filteredBedServices = useMemo(() => {
+const scopedServices = selectedServices.length
+? HOSPITAL_BEDS.filter((item) =>
+selectedServices.includes(item.serviceLabel)
+)
+: HOSPITAL_BEDS;
+
+return scopedServices.map((serviceItem) => ({
+...serviceItem,
+metrics: computeBedMetricsForService(serviceItem, bedStates, patientBedMap),
+}));
+}, [selectedServices, bedStates, patientBedMap]);
+
+const globalBedMetrics = useMemo(() => {
+return filteredBedServices.reduce(
+(acc, serviceItem) => {
+acc.totalBeds += serviceItem.metrics.totalBeds;
+acc.availableBeds += serviceItem.metrics.availableBeds;
+acc.occupiedBeds += serviceItem.metrics.occupiedBeds;
+acc.blockedBeds += serviceItem.metrics.blockedBeds;
+acc.reservedBeds += serviceItem.metrics.reservedBeds;
+acc.isolationBeds += serviceItem.metrics.isolationBeds;
+acc.recoverable48h += serviceItem.metrics.recoverable48h;
+acc.forecastBlockages48h += serviceItem.metrics.forecastBlockages48h;
+return acc;
+},
+{
+totalBeds: 0,
+availableBeds: 0,
+occupiedBeds: 0,
+blockedBeds: 0,
+reservedBeds: 0,
+isolationBeds: 0,
+recoverable48h: 0,
+forecastBlockages48h: 0,
+}
+);
+}, [filteredBedServices]);
+
 const kpis =
 mode === "direction"
 ? [
@@ -980,7 +1630,15 @@ kind: "critical",
 ];
 
 return (
-<AppShell header={<AppHeader subtitle="Pilotage des parcours patient" />}>
+<AppShell
+header={
+<AppHeader
+subtitle="Pilotage des parcours patient"
+onLogout={onLogout}
+user={user}
+/>
+}
+>
 <div
 style={{
 maxWidth: 1480,
@@ -990,6 +1648,32 @@ display: "grid",
 gap: 16,
 }}
 >
+<div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+{user?.role === "DIRECTION" && (
+<button
+type="button"
+className="app-btn app-btn-ghost"
+onClick={() => setView("admin")}
+>
+Gestion des comptes
+</button>
+)}
+
+{view === "admin" && (
+<button
+type="button"
+className="app-btn app-btn-ghost"
+onClick={() => setView("dashboard")}
+>
+Retour dashboard
+</button>
+)}
+</div>
+
+{view === "admin" ? (
+<AdminUsers />
+) : (
+<>
 <section className="app-card" style={headerCard}>
 <div style={toolbarGrid}>
 <div style={{ display: "grid", gap: 6 }}>
@@ -1008,6 +1692,13 @@ className={`app-chip ${mode === "direction" ? "blue" : ""}`}
 onClick={() => setMode("direction")}
 >
 Direction
+</button>
+<button
+type="button"
+className={`app-chip ${mode === "beds" ? "blue" : ""}`}
+onClick={() => setMode("beds")}
+>
+Gestion des lits
 </button>
 </div>
 </div>
@@ -1086,10 +1777,12 @@ directionSummary.fastExits > 0 ? "green" : "neutral"
 </>
 ) : null}
 
+{mode !== "beds" ? (
+<>
 <div
 style={{
 display: "grid",
-gridTemplateColumns: `repeat(${kpis.length}, minmax(140px, 1fr))`,
+gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
 gap: 10,
 }}
 >
@@ -1109,7 +1802,11 @@ return (
 key={kpi.key}
 type="button"
 onClick={() => setActiveFilter(kpi.key)}
-style={kpiCard(activeFilter === kpi.key, kpi.strong, kpi.kind)}
+style={kpiCard(
+activeFilter === kpi.key,
+kpi.strong,
+kpi.kind
+)}
 >
 <span style={kpiEyebrow}>{kpi.label}</span>
 <strong
@@ -1161,7 +1858,9 @@ Tous
 </button>
 <button
 type="button"
-className={`app-chip ${activeFilter === "medical" ? "blue" : ""}`}
+className={`app-chip ${
+activeFilter === "medical" ? "blue" : ""
+}`}
 onClick={() => setActiveFilter("medical")}
 >
 Sort Med
@@ -1201,6 +1900,8 @@ onClick={() => setActiveFilter("incident")}
 Incidents
 </button>
 </div>
+</>
+) : null}
 </section>
 
 {mode === "direction" ? (
@@ -1224,98 +1925,14 @@ blocage dominant
 </span>
 </div>
 
-<div style={{ display: "grid", gap: 8 }}>
-{directionRows.map((row) => (
-<div key={row.service} style={directionRowCard}>
-<div style={{ display: "grid", gap: 4 }}>
-<strong style={{ color: "#17376a", fontSize: 13 }}>
-{row.service}
-</strong>
-<span style={statusBadgeStyle(row.risk.color)}>
-{row.risk.label}
-</span>
-</div>
-
-<div style={directionMetric}>
-<span style={directionMetricLabel}>Capacité</span>
-<strong>{row.occupancyLabel}</strong>
-<span style={directionMetricSub}>
-{row.availableBeds} dispo · {row.occupancyRate}%
-</span>
-</div>
-
-<div style={directionMetric}>
-<span style={directionMetricLabel}>Sort Med</span>
-<strong>{row.medical}</strong>
-</div>
-
-<div style={directionMetric}>
-<span style={directionMetricLabel}>Récupérables</span>
-<strong>{row.recoverable}</strong>
-</div>
-
-<div style={directionMetric}>
-<span style={directionMetricLabel}>Complexes</span>
-<strong>{row.complex}</strong>
-</div>
-
-<div style={directionMetric}>
-<span style={directionMetricLabel}>Jours évitables</span>
-<strong
-style={
-row.avoidableDays > 0 ? avoidableHighlight : undefined
-}
->
-{row.avoidableDays} j
-</strong>
-</div>
-
-<div style={directionMetric}>
-<span style={directionMetricLabel}>DMS ≥ J+10</span>
-<strong
-style={
-row.dmsExceeded > 0 ? { color: "#a16207" } : undefined
-}
->
-{row.dmsExceeded}
-</strong>
-</div>
-
-<div style={directionMetric}>
-<span style={directionMetricLabel}>Dates cibles</span>
-<strong>{row.targetDefined}</strong>
-</div>
-
-<div style={directionMetric}>
-<span style={directionMetricLabel}>Vulnérables</span>
-<strong
-style={
-row.vulnerable > 0 ? { color: "#6d28d9" } : undefined
-}
->
-{row.vulnerable}
-</strong>
-</div>
-
-<div style={directionMetric}>
-<span style={directionMetricLabel}>Incidents</span>
-<strong
-style={
-row.incidents > 0 ? { color: "#b42318" } : undefined
-}
->
-{row.incidents}
-</strong>
-</div>
-
-<div style={{ ...directionMetric, minWidth: 160 }}>
-<span style={directionMetricLabel}>Blocage dominant</span>
-<strong style={{ fontSize: 12 }}>
-{row.dominantBlockage}
-</strong>
-</div>
-</div>
-))}
+<div style={{ width: "100%", overflowX: "auto" }}>
+  <div style={{ display: "grid", gap: 8, minWidth: 1260 }}>
+    {directionRows.map((row) => (
+      <div key={row.service} style={directionRowCard}>
+        ...
+      </div>
+    ))}
+  </div>
 </div>
 </section>
 
@@ -1427,15 +2044,17 @@ DMS longue
 </div>
 
 <div style={{ fontSize: 12, color: "#475569" }}>
-{patient.dateNaissance || "—"} · {patient.age || "—"} ans ·{" "}
-{patient.sexe || "—"} · INS {patient.ins || "—"} · IEP{" "}
+{patient.dateNaissance || "—"} · {patient.age || "—"} ans
+· {patient.sexe || "—"} · INS {patient.ins || "—"} · IEP{" "}
 {patient.iep || "—"}
 </div>
 
 <div style={{ fontSize: 12, color: "#475569" }}>
 Entrée le{" "}
-{formatShortDate(patient.dateEntree || patient.admissionDate)} ·{" "}
-{patient.service || "—"} · Chambre {patient.chambre || "—"} · Lit{" "}
+{formatShortDate(
+patient.dateEntree || patient.admissionDate
+)}{" "}
+· {patient.service || "—"} · Chambre {patient.chambre || "—"} · Lit{" "}
 {patient.lit || "—"}
 </div>
 </div>
@@ -1448,12 +2067,13 @@ Entrée le{" "}
 <strong>Blocage :</strong> {getBlockageLabel(patient)}
 </div>
 <div style={{ fontSize: 12, color: "#334155" }}>
-<strong>Complexité :</strong> {getComplexityLabel(patient)} · score{" "}
-{getComplexityScore(patient)}
+<strong>Complexité :</strong> {getComplexityLabel(patient)} ·
+score {getComplexityScore(patient)}
 </div>
 {currentIncident ? (
 <div style={{ fontSize: 12, color: "#334155" }}>
-<strong>Workflow :</strong> {getIncidentStepLabel(currentIncident)}
+<strong>Workflow :</strong>{" "}
+{getIncidentStepLabel(currentIncident)}
 </div>
 ) : null}
 </div>
@@ -1476,7 +2096,8 @@ color: getDMSColor(los),
 J+{los}
 </span>
 <span style={statusBadgeStyle(targetStatus.color)}>
-Date cible {targetDate ? formatShortDate(targetDate) : "non définie"} ·{" "}
+Date cible{" "}
+{targetDate ? formatShortDate(targetDate) : "non définie"} ·{" "}
 {targetStatus.label}
 </span>
 </div>
@@ -1524,6 +2145,227 @@ onClick={() => triggerIncident(patient)}
 </>
 ) : null}
 
+{mode === "beds" ? (
+<>
+<section className="app-card" style={directionCard}>
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+gap: 10,
+}}
+>
+<div style={kpiCard(false, true, "info")}>
+<span style={kpiEyebrow}>Lits totaux</span>
+<strong style={{ fontSize: 28, color: "#17376a" }}>
+{globalBedMetrics.totalBeds}
+</strong>
+</div>
+
+<div style={kpiCard(false, true, "watch")}>
+<span style={kpiEyebrow}>Disponibles</span>
+<strong style={{ fontSize: 28, color: "#166534" }}>
+{globalBedMetrics.availableBeds}
+</strong>
+</div>
+
+<div style={kpiCard(false, true, "critical")}>
+<span style={kpiEyebrow}>Occupés</span>
+<strong style={{ fontSize: 28, color: "#475569" }}>
+{globalBedMetrics.occupiedBeds}
+</strong>
+</div>
+
+<div style={kpiCard(false, true, "critical")}>
+<span style={kpiEyebrow}>Bloqués</span>
+<strong style={{ fontSize: 28, color: "#b42318" }}>
+{globalBedMetrics.blockedBeds}
+</strong>
+</div>
+
+<div style={kpiCard(false, true, "action")}>
+<span style={kpiEyebrow}>Récupérables &lt; 48h</span>
+<strong style={{ fontSize: 28, color: "#a16207" }}>
+{globalBedMetrics.recoverable48h}
+</strong>
+</div>
+
+<div style={kpiCard(false, true, "watch")}>
+<span style={kpiEyebrow}>Blocages prévus &lt; 48h</span>
+<strong style={{ fontSize: 28, color: "#6d28d9" }}>
+{globalBedMetrics.forecastBlockages48h}
+</strong>
+</div>
+</div>
+</section>
+
+{filteredBedServices.map((serviceItem) => (
+<section
+key={serviceItem.serviceCode}
+className="app-card"
+style={directionCard}
+>
+<div
+style={{
+display: "flex",
+justifyContent: "space-between",
+alignItems: "center",
+gap: 12,
+flexWrap: "wrap",
+}}
+>
+<strong style={{ color: "#17376a", fontSize: 18 }}>
+{serviceItem.serviceLabel}
+</strong>
+
+<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+<span style={statusBadgeStyle("green")}>
+{serviceItem.metrics.availableBeds} dispo
+</span>
+<span style={statusBadgeStyle("neutral")}>
+{serviceItem.metrics.occupiedBeds} occupé(s)
+</span>
+<span style={statusBadgeStyle("red")}>
+{serviceItem.metrics.blockedBeds} bloqué(s)
+</span>
+<span style={statusBadgeStyle("blue")}>
+{serviceItem.metrics.reservedBeds} entrée(s) programmée(s)
+</span>
+<span style={statusBadgeStyle("amber")}>
+{serviceItem.metrics.recoverable48h} récupérable(s) &lt; 48h
+</span>
+</div>
+</div>
+
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
+gap: 6,
+}}
+>
+{safeArray(serviceItem.rooms).flatMap((room) =>
+safeArray(room.beds).map((bed) => {
+const key = getPatientBedMapKey(room.roomNumber, bed.label);
+const linkedPatient = patientBedMap[key];
+const bedState = bedStates[bed.bedId] || {};
+const status = getBedComputedStatus(bedState, linkedPatient);
+const shortLabel = getBedShortLabel(bed.label, room.roomType);
+
+return (
+<button
+key={bed.bedId}
+type="button"
+onClick={() =>
+openBedEditor({
+bedId: bed.bedId,
+serviceCode: serviceItem.serviceCode,
+serviceLabel: serviceItem.serviceLabel,
+roomNumber: room.roomNumber,
+roomType: room.roomType,
+bedLabel: bed.label,
+linkedPatient,
+})
+}
+style={{
+border: "1px solid #e2e8f0",
+borderRadius: 10,
+padding: 8,
+minHeight: 92,
+cursor: "pointer",
+textAlign: "left",
+background:
+status === BED_STATUSES.BLOCKED
+? "#fff7f7"
+: status === BED_STATUSES.RESERVED
+? "#eef4ff"
+: status === BED_STATUSES.ISOLATION
+? "#f5f3ff"
+: status === BED_STATUSES.AVAILABLE
+? "#f7fcf8"
+: "#f8fafc",
+borderColor:
+status === BED_STATUSES.BLOCKED
+? "#f1b3aa"
+: status === BED_STATUSES.RESERVED
+? "#cfe0ff"
+: status === BED_STATUSES.ISOLATION
+? "#ddd6fe"
+: status === BED_STATUSES.AVAILABLE
+? "#cdebd8"
+: "#e2e8f0",
+}}
+title={`Chambre ${room.roomNumber}${
+shortLabel ? ` · ${shortLabel}` : ""
+}`}
+>
+<div style={{ display: "grid", gap: 3 }}>
+<strong
+style={{
+color: "#17376a",
+fontSize: 12,
+lineHeight: 1.1,
+}}
+>
+{room.roomNumber}
+{shortLabel}
+</strong>
+
+<span
+style={{
+...statusBadgeStyle(getBedStatusColor(status)),
+minHeight: 18,
+fontSize: 9,
+padding: "0 5px",
+width: "fit-content",
+}}
+>
+{getBedStatusLabel(status)}
+</span>
+
+{linkedPatient ? (
+<div
+style={{
+fontSize: 9,
+color: "#334155",
+lineHeight: 1.1,
+display: "-webkit-box",
+WebkitLineClamp: 2,
+WebkitBoxOrient: "vertical",
+overflow: "hidden",
+}}
+>
+{linkedPatient.nom}
+</div>
+) : null}
+
+{!linkedPatient && bedState?.reason ? (
+<div
+style={{
+fontSize: 9,
+color: "#64748b",
+lineHeight: 1.1,
+display: "-webkit-box",
+WebkitLineClamp: 2,
+WebkitBoxOrient: "vertical",
+overflow: "hidden",
+}}
+>
+{getBedReasonLabel(bedState.reason)}
+</div>
+) : null}
+</div>
+</button>
+);
+})
+)}
+</div>
+</section>
+))}
+</>
+) : null}
+
+{mode !== "beds" ? (
 <section className="app-card" style={listCard}>
 {mode === "service"
 ? groupedPatients.map(({ service, items }) => (
@@ -1559,7 +2401,8 @@ flexWrap: "wrap",
 items.filter((p) =>
 Boolean(getCurrentIncident(p, incidents))
 ).length
-} incident(s)
+}{" "}
+incident(s)
 </span>
 </div>
 </div>
@@ -1589,7 +2432,9 @@ key={patient.id}
 style={{
 ...patientRowCard,
 ...cardTone,
-...(currentIncident ? { border: "2px solid #f1b3aa" } : {}),
+...(currentIncident
+? { border: "2px solid #f1b3aa" }
+: {}),
 ...(los >= 10 && !currentIncident
 ? { border: "2px solid #f1b3aa" }
 : {}),
@@ -1602,7 +2447,9 @@ boxShadow:
 : {}),
 }}
 >
-<div style={{ display: "grid", gap: 4, position: "relative" }}>
+<div
+style={{ display: "grid", gap: 4, position: "relative" }}
+>
 <div
 style={{
 display: "flex",
@@ -1629,14 +2476,14 @@ Sort Med
 </span>
 ) : null}
 
-{normalizeText(getBlockageLabel(patient)).includes("ase") ? (
+{normalizeText(getBlockageLabel(patient)).includes(
+"ase"
+) ? (
 <span style={statusBadgeStyle("red")}>ASE</span>
 ) : null}
 
 {currentIncident ? (
-<span style={statusBadgeStyle("red")}>
-En cours
-</span>
+<span style={statusBadgeStyle("red")}>En cours</span>
 ) : null}
 
 {!currentIncident && previousIncident ? (
@@ -1648,11 +2495,7 @@ Antécédent
 {vulnerable ? (
 <button
 type="button"
-onClick={() =>
-setVulnPopoverId(
-vulnPopoverId === patient.id ? null : patient.id
-)
-}
+onClick={() => openVulnerabilityModal(patient)}
 style={{
 ...statusBadgeStyle("purple"),
 cursor: "pointer",
@@ -1663,11 +2506,7 @@ Vulnérable ({vulnerabilityCount(patient)})
 ) : (
 <button
 type="button"
-onClick={() =>
-setVulnPopoverId(
-vulnPopoverId === patient.id ? null : patient.id
-)
-}
+onClick={() => openVulnerabilityModal(patient)}
 style={{
 ...statusBadgeStyle("neutral"),
 cursor: "pointer",
@@ -1686,15 +2525,17 @@ DMS longue
 </div>
 
 <div style={{ fontSize: 12, color: "#475569" }}>
-{patient.dateNaissance || "—"} · {patient.age || "—"} ans ·{" "}
-{patient.sexe || "—"} · INS {patient.ins || "—"} · IEP{" "}
+{patient.dateNaissance || "—"} · {patient.age || "—"} ans
+· {patient.sexe || "—"} · INS {patient.ins || "—"} · IEP{" "}
 {patient.iep || "—"}
 </div>
 
 <div style={{ fontSize: 12, color: "#475569" }}>
 Entrée le{" "}
-{formatShortDate(patient.dateEntree || patient.admissionDate)} ·{" "}
-{patient.service || "—"} · Chambre {patient.chambre || "—"} · Lit{" "}
+{formatShortDate(
+patient.dateEntree || patient.admissionDate
+)}{" "}
+· {patient.service || "—"} · Chambre {patient.chambre || "—"} · Lit{" "}
 {patient.lit || "—"}
 </div>
 
@@ -1829,7 +2670,9 @@ Date cible{" "}
 </div>
 </div>
 
-<div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+<div
+style={{ display: "grid", gap: 6, justifyItems: "end" }}
+>
 <div style={compactActionRow}>
 <button
 type="button"
@@ -1898,7 +2741,546 @@ transform: medicallyReady
 ))
 : null}
 </section>
+) : null}
+</>
+)}
 </div>
+
+{vulnerabilityModalPatient ? (
+<div
+style={{
+position: "fixed",
+inset: 0,
+background: "rgba(0,0,0,0.4)",
+display: "flex",
+alignItems: "center",
+justifyContent: "center",
+zIndex: 2000,
+padding: 16,
+}}
+onClick={closeVulnerabilityModal}
+>
+<div
+style={{
+background: "#fff",
+padding: 20,
+borderRadius: 12,
+width: "100%",
+maxWidth: 700,
+maxHeight: "90vh",
+overflowY: "auto",
+display: "grid",
+gap: 14,
+}}
+onClick={(e) => e.stopPropagation()}
+>
+<h3 style={{ color: "#17376a", margin: 0 }}>
+Vulnérabilité patient
+</h3>
+
+<p style={{ margin: 0 }}>
+<strong>
+{vulnerabilityModalPatient.nom} {vulnerabilityModalPatient.prenom}
+</strong>
+</p>
+
+<div style={{ display: "grid", gap: 6 }}>
+<strong style={{ fontSize: 12, color: "#17376a" }}>
+Critères de vulnérabilité
+</strong>
+
+{vulnerabilityList.map((item) => {
+const checked = vulnerabilityForm.criteria.includes(item);
+
+return (
+<label
+key={item}
+style={{
+display: "flex",
+gap: 8,
+alignItems: "center",
+fontSize: 13,
+color: "#334155",
+}}
+>
+<input
+type="checkbox"
+checked={checked}
+onChange={() =>
+setVulnerabilityForm((prev) => ({
+...prev,
+criteria: checked
+? prev.criteria.filter((entry) => entry !== item)
+: [...prev.criteria, item],
+}))
+}
+/>
+<span>{item}</span>
+</label>
+);
+})}
+</div>
+
+<div
+style={{
+display: "grid",
+gap: 8,
+padding: 12,
+borderRadius: 10,
+background: "#f8fbff",
+border: "1px solid #dbe7f5",
+}}
+>
+<strong style={{ fontSize: 12, color: "#17376a" }}>
+Consentement photo
+</strong>
+
+<div style={{ fontSize: 12, color: "#475569", lineHeight: 1.5 }}>
+J’autorise la prise et l’enregistrement de ma photographie dans le dossier
+patient pour faciliter mon identification et la sécurisation de ma prise
+en charge.
+</div>
+
+<label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+<input
+type="checkbox"
+checked={vulnerabilityForm.consentAccepted}
+onChange={(e) =>
+setVulnerabilityForm((prev) => ({
+...prev,
+consentAccepted: e.target.checked,
+}))
+}
+/>
+<span>Consentement recueilli</span>
+</label>
+
+<select
+value={vulnerabilityForm.signerType}
+onChange={(e) =>
+setVulnerabilityForm((prev) => ({
+...prev,
+signerType: e.target.value,
+}))
+}
+style={bedFormInput}
+>
+<option value="patient">Patient</option>
+<option value="representant_legal">Représentant légal</option>
+</select>
+
+<input
+type="text"
+placeholder="Nom du signataire"
+value={vulnerabilityForm.signerName}
+onChange={(e) =>
+setVulnerabilityForm((prev) => ({
+...prev,
+signerName: e.target.value,
+}))
+}
+style={bedFormInput}
+/>
+</div>
+
+<div style={{ display: "grid", gap: 8 }}>
+<strong style={{ fontSize: 12, color: "#17376a" }}>
+Signature
+</strong>
+
+<div
+style={{
+border: "1px solid #d6deea",
+borderRadius: 10,
+overflow: "hidden",
+width: "100%",
+maxWidth: 520,
+background: "#fff",
+}}
+>
+<SignatureCanvas
+ref={signatureRef}
+canvasProps={{
+width: 520,
+height: 160,
+style: {
+display: "block",
+width: "100%",
+height: 160,
+background: "#fff",
+},
+}}
+/>
+</div>
+
+<div style={{ display: "flex", gap: 8 }}>
+<button
+type="button"
+className="app-btn app-btn-ghost"
+onClick={() => signatureRef.current?.clear()}
+>
+Effacer la signature
+</button>
+</div>
+</div>
+
+<div style={{ display: "grid", gap: 8 }}>
+<strong style={{ fontSize: 12, color: "#17376a" }}>
+Photo patient
+</strong>
+
+<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+<button
+type="button"
+className="app-btn app-btn-ghost"
+onClick={startCamera}
+>
+Ouvrir la caméra
+</button>
+
+{cameraStream ? (
+<button
+type="button"
+className="app-btn app-btn-primary"
+onClick={capturePhotoFromVideo}
+>
+Capturer la photo
+</button>
+) : null}
+
+{cameraStream ? (
+<button
+type="button"
+className="app-btn app-btn-ghost"
+onClick={stopCamera}
+>
+Fermer la caméra
+</button>
+) : null}
+</div>
+
+{cameraStream ? (
+<video
+ref={videoRef}
+autoPlay
+playsInline
+muted
+style={{
+width: "100%",
+maxWidth: 360,
+borderRadius: 10,
+border: "1px solid #d6deea",
+background: "#000",
+}}
+/>
+) : null}
+
+<div style={{ fontSize: 12, color: "#64748b" }}>
+Ou importer une photo depuis l’appareil
+</div>
+
+<input
+type="file"
+accept="image/*"
+capture="environment"
+onChange={(e) => {
+const file = e.target.files?.[0];
+if (!file) return;
+
+const reader = new FileReader();
+reader.onload = () => {
+setVulnerabilityForm((prev) => ({
+...prev,
+photoDataUrl: reader.result,
+photoTakenAt: new Date().toISOString(),
+}));
+};
+reader.readAsDataURL(file);
+}}
+/>
+
+{vulnerabilityForm.photoDataUrl ? (
+<img
+src={vulnerabilityForm.photoDataUrl}
+alt="Prévisualisation patient"
+style={{
+width: 140,
+height: 140,
+objectFit: "cover",
+borderRadius: 10,
+border: "1px solid #d6deea",
+}}
+/>
+) : null}
+</div>
+
+<div style={{ display: "grid", gap: 8 }}>
+<strong style={{ fontSize: 12, color: "#17376a" }}>
+Commentaire
+</strong>
+
+<textarea
+value={vulnerabilityForm.comment}
+onChange={(e) =>
+setVulnerabilityForm((prev) => ({
+...prev,
+comment: e.target.value,
+}))
+}
+rows={3}
+style={{
+width: "100%",
+borderRadius: 10,
+border: "1px solid #d6deea",
+padding: "8px 10px",
+fontSize: 14,
+color: "#17376a",
+background: "#fff",
+resize: "vertical",
+}}
+placeholder="Commentaire facultatif"
+/>
+</div>
+
+{vulnerabilityFormError ? (
+<div style={{ color: "#b42318", fontSize: 12 }}>
+{vulnerabilityFormError}
+</div>
+) : null}
+
+<div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+<button
+type="button"
+className="app-btn app-btn-ghost"
+onClick={closeVulnerabilityModal}
+>
+Annuler
+</button>
+
+<button
+type="button"
+className="app-btn app-btn-primary"
+onClick={saveVulnerabilityWorkflow}
+>
+Enregistrer
+</button>
+</div>
+
+</div>
+</div>
+) : null}
+
+
+
+
+{selectedBedMeta ? (
+
+
+  
+<div style={bedModalOverlay} onClick={closeBedEditor}>
+<div style={bedModalCard} onClick={(e) => e.stopPropagation()}>
+<div
+style={{
+display: "flex",
+justifyContent: "space-between",
+gap: 12,
+alignItems: "flex-start",
+}}
+>
+<div style={{ display: "grid", gap: 4 }}>
+<strong style={{ color: "#17376a", fontSize: 18 }}>
+{selectedBedMeta.serviceLabel}
+</strong>
+<div style={{ fontSize: 13, color: "#475569" }}>
+Chambre {selectedBedMeta.roomNumber}
+{getBedShortLabel(
+selectedBedMeta.bedLabel,
+selectedBedMeta.roomType
+)
+? ` · ${getBedShortLabel(
+selectedBedMeta.bedLabel,
+selectedBedMeta.roomType
+)}`
+: ""}
+</div>
+{selectedBedMeta.linkedPatient ? (
+<div style={{ fontSize: 12, color: "#334155" }}>
+Occupé par {selectedBedMeta.linkedPatient.nom}{" "}
+{selectedBedMeta.linkedPatient.prenom}
+</div>
+) : (
+<div style={{ fontSize: 12, color: "#64748b" }}>
+Aucun patient affecté
+</div>
+)}
+</div>
+
+<button
+type="button"
+onClick={closeBedEditor}
+style={popoverCloseBtn}
+>
+×
+</button>
+</div>
+
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "1fr 1fr",
+gap: 12,
+}}
+>
+<div style={bedFormField}>
+<label style={bedFormLabel}>Motif</label>
+<select
+value={bedForm.reason}
+onChange={(e) =>
+setBedForm((prev) => ({ ...prev, reason: e.target.value }))
+}
+style={bedFormInput}
+disabled={Boolean(selectedBedMeta.linkedPatient)}
+>
+{BED_REASON_OPTIONS.map((option) => (
+<option key={option.value} value={option.value}>
+{option.label}
+</option>
+))}
+</select>
+</div>
+
+<div style={bedFormField}>
+<label style={bedFormLabel}>Début</label>
+<input
+type="datetime-local"
+value={bedForm.startAt}
+onChange={(e) =>
+setBedForm((prev) => ({ ...prev, startAt: e.target.value }))
+}
+style={bedFormInput}
+disabled={Boolean(selectedBedMeta.linkedPatient)}
+/>
+</div>
+
+<div style={bedFormField}>
+<label style={bedFormLabel}>Fin</label>
+<input
+type="datetime-local"
+value={bedForm.endAt}
+onChange={(e) =>
+setBedForm((prev) => ({ ...prev, endAt: e.target.value }))
+}
+style={bedFormInput}
+disabled={Boolean(selectedBedMeta.linkedPatient)}
+/>
+</div>
+
+<div style={bedFormField}>
+<label style={bedFormLabel}>Note</label>
+<input
+type="text"
+value={bedForm.note}
+onChange={(e) =>
+setBedForm((prev) => ({ ...prev, note: e.target.value }))
+}
+style={bedFormInput}
+placeholder="Commentaire"
+disabled={Boolean(selectedBedMeta.linkedPatient)}
+/>
+</div>
+</div>
+
+{selectedBedMeta?.linkedPatient ? (
+<div
+style={{
+fontSize: 12,
+color: "#64748b",
+background: "#f8fafc",
+border: "1px solid #e2e8f0",
+borderRadius: 10,
+padding: 10,
+}}
+>
+Ce lit est actuellement occupé. Son statut est piloté par
+l’affectation patient.
+</div>
+) : null}
+
+{bedFormError ? (
+<div style={{ color: "#b42318", fontSize: 12 }}>{bedFormError}</div>
+) : null}
+
+{selectedBedMeta && !selectedBedMeta.linkedPatient ? (
+<div
+style={{
+display: "grid",
+gap: 6,
+fontSize: 12,
+color: "#475569",
+borderTop: "1px solid #eef2f7",
+paddingTop: 12,
+}}
+>
+<div>
+<strong>Dernière période :</strong>{" "}
+{bedStates[selectedBedMeta.bedId]?.startAt
+? `${formatDateTimeDisplay(
+bedStates[selectedBedMeta.bedId]?.startAt
+)} → ${formatDateTimeDisplay(
+bedStates[selectedBedMeta.bedId]?.endAt
+)}`
+: "—"}
+</div>
+<div>
+<strong>Dernier motif :</strong>{" "}
+{getBedReasonLabel(bedStates[selectedBedMeta.bedId]?.reason)}
+</div>
+</div>
+) : null}
+
+<div
+style={{
+display: "flex",
+justifyContent: "space-between",
+gap: 8,
+flexWrap: "wrap",
+}}
+>
+<div>
+{!selectedBedMeta.linkedPatient &&
+bedStates[selectedBedMeta.bedId]?.status !== BED_STATUSES.AVAILABLE ? (
+<button
+type="button"
+className="app-btn app-btn-ghost"
+onClick={() => releaseBed(selectedBedMeta.bedId)}
+>
+Libérer le lit
+</button>
+) : null}
+</div>
+
+<div style={{ display: "flex", gap: 8 }}>
+<button
+type="button"
+className="app-btn app-btn-ghost"
+onClick={closeBedEditor}
+>
+Annuler
+</button>
+{!selectedBedMeta.linkedPatient ? (
+<button
+type="button"
+className="app-btn app-btn-primary"
+onClick={saveBedState}
+>
+Enregistrer
+</button>
+) : null}
+</div>
+</div>
+</div>
+</div>
+) : null}
 </AppShell>
 );
 }
@@ -1992,15 +3374,17 @@ borderTop: "1px solid #eef2f7",
 };
 
 const directionRowCard = {
-display: "grid",
-gridTemplateColumns: "1.1fr repeat(9, minmax(0, 1fr)) 1.4fr",
-gap: 10,
-alignItems: "center",
-border: "1px solid #e5ebf4",
-borderRadius: 14,
-padding: 12,
-background: "#fff",
-boxShadow: "0 4px 12px rgba(15,23,42,.04)",
+  display: "grid",
+  gridTemplateColumns:
+    "minmax(140px, 1.2fr) repeat(9, minmax(90px, 1fr)) minmax(160px, 1.4fr)",
+  gap: 10,
+  alignItems: "center",
+  border: "1px solid #e5ebf4",
+  borderRadius: 14,
+  padding: 12,
+  background: "#fff",
+  boxShadow: "0 4px 12px rgba(15,23,42,.04)",
+  minWidth: 1260,
 };
 
 const directionMetric = {
@@ -2093,7 +3477,7 @@ transition: "transform 0.15s ease",
 
 const patientRowCard = {
 display: "grid",
-gridTemplateColumns: "1.65fr 1.15fr 1.45fr auto",
+gridTemplateColumns: "minmax(320px, 1.8fr) minmax(220px, 1.3fr) minmax(180px, 1fr) auto",
 gap: 10,
 padding: 10,
 borderRadius: 16,
@@ -2153,3 +3537,48 @@ const vulnerabilityList = [
 "Majeur protégé",
 "Propos suicidaires",
 ];
+
+const bedModalOverlay = {
+position: "fixed",
+inset: 0,
+background: "rgba(15,23,42,.32)",
+display: "flex",
+alignItems: "center",
+justifyContent: "center",
+zIndex: 1000,
+padding: 20,
+};
+
+const bedModalCard = {
+width: "100%",
+maxWidth: 680,
+background: "#fff",
+borderRadius: 18,
+padding: 18,
+display: "grid",
+gap: 14,
+boxShadow: "0 24px 64px rgba(15,23,42,.20)",
+};
+
+const bedFormField = {
+display: "grid",
+gap: 6,
+};
+
+const bedFormLabel = {
+fontSize: 12,
+fontWeight: 800,
+color: "#475569",
+textTransform: "uppercase",
+};
+
+const bedFormInput = {
+width: "100%",
+minHeight: 40,
+borderRadius: 10,
+border: "1px solid #d6deea",
+padding: "8px 10px",
+fontSize: 14,
+color: "#17376a",
+background: "#fff",
+};

@@ -9,6 +9,7 @@ useState,
 
 import { resourcesCotentin } from "../contacts/resourcesCotentin";
 import { generateDPIPatients } from "../data/dpiSeedPatients";
+import { HOSPITAL_BEDS } from "../data/hospitalBeds";
 import { deriveFromStructuredIntake } from "../domain/intake/intakeDerivation";
 import {
 createEscapeIncident,
@@ -27,6 +28,17 @@ return String(value || "")
 .normalize("NFD")
 .replace(/[\u0300-\u036f]/g, "")
 .trim();
+}
+
+function normalizePatientSex(patient, index = 0) {
+  if (patient?.sexe === "H" || patient?.sexe === "F" || patient?.sexe === "U") {
+    return patient;
+  }
+
+  return {
+    ...patient,
+    sexe: index % 2 === 0 ? "H" : "F",
+  };
 }
 
 function safeArray(value) {
@@ -402,14 +414,19 @@ updatedAt: new Date().toISOString(),
 };
 }
 export function PatientSimulationProvider({ children }) {
+
 const [patientsState, setPatientsState] = useState(() => {
 const stored = readJsonStorage(PATIENTS_STORAGE_KEY, null);
 
 if (stored && stored.length > 0) {
-return stored.map(buildPatient);
+return assignPatientsToConfiguredBeds(stored).map((patient, index) =>
+buildPatient(normalizePatientSex(patient, index))
+);
 }
 
-return generateDPIPatients().map(buildPatient);
+return assignPatientsToConfiguredBeds(generateDPIPatients()).map(
+(patient, index) => buildPatient(normalizePatientSex(patient, index))
+);
 });
 
 const [incidentsState, setIncidentsState] = useState(() => {
@@ -682,19 +699,60 @@ typeof payload === "function" ? payload(patient) : payload || {};
 
 return buildPatient({
 ...patient,
+
 copilotSummary:
 next.copilotSummary || patient.copilotSummary || null,
+
 parcoursStatus:
-next.parcoursStatus || patient.parcoursStatus || "",
-nextAction: next.nextAction || patient.nextAction || null,
-actionPlan: next.actionPlan || patient.actionPlan || [],
+next.parcoursStatus ?? patient.parcoursStatus ?? "",
+
+orientation:
+next.orientation ?? patient.orientation ?? "",
+
+solutionLabel:
+next.solutionLabel ?? patient.solutionLabel ?? "",
+
+dateSortiePrevue:
+next.dateSortiePrevue ?? patient.dateSortiePrevue ?? "",
+
+dischargePlanning: {
+...(patient.dischargePlanning || {}),
+...(next.dischargePlanning || {}),
+},
+
+nextAction:
+next.nextAction ?? patient.nextAction ?? null,
+
+actionPlan:
+Array.isArray(next.actionPlan)
+? next.actionPlan
+: Array.isArray(patient.actionPlan)
+? patient.actionPlan
+: [],
+
 resourceFollowUp:
-next.resourceFollowUp || patient.resourceFollowUp || [],
+Array.isArray(next.resourceFollowUp)
+? next.resourceFollowUp
+: Array.isArray(patient.resourceFollowUp)
+? patient.resourceFollowUp
+: [],
+
+hdjPlan:
+next.hdjPlan ?? patient.hdjPlan ?? null,
+
+decisionLog:
+Array.isArray(next.decisionLog)
+? next.decisionLog
+: Array.isArray(patient.decisionLog)
+? patient.decisionLog
+: [],
+
 updatedAt: new Date().toISOString(),
 });
 })
 );
 }, []);
+
 const addSimulatedPatient = useCallback((rawPatient) => {
 const nextPatient = buildPatient(rawPatient);
 const newId = nextPatient.id;
@@ -725,6 +783,72 @@ updatedAt: new Date().toISOString(),
 })
 );
 }, []);
+
+function flattenBedsByService() {
+const map = {};
+
+safeArray(HOSPITAL_BEDS).forEach((serviceItem) => {
+const serviceLabel = serviceItem?.serviceLabel;
+const serviceCode = serviceItem?.serviceCode;
+
+const keys = [serviceLabel, serviceCode].filter(Boolean);
+
+const beds = [];
+
+safeArray(serviceItem?.rooms).forEach((room) => {
+safeArray(room?.beds).forEach((bed) => {
+beds.push({
+chambre: String(room?.roomNumber || "").trim(),
+lit:
+room?.roomType === "single"
+? "Lit"
+: bed?.label || "",
+});
+});
+});
+
+keys.forEach((key) => {
+map[String(key)] = beds;
+});
+});
+
+return map;
+}
+
+function assignPatientsToConfiguredBeds(rawPatients = []) {
+const bedsByService = flattenBedsByService();
+
+const grouped = safeArray(rawPatients).reduce((acc, patient) => {
+const serviceKey = String(patient?.service || "");
+if (!acc[serviceKey]) acc[serviceKey] = [];
+acc[serviceKey].push(patient);
+return acc;
+}, {});
+
+const reassigned = [];
+
+Object.entries(grouped).forEach(([serviceKey, servicePatients]) => {
+const serviceBeds = safeArray(bedsByService[serviceKey]);
+
+servicePatients.forEach((patient, index) => {
+const assignedBed = serviceBeds[index];
+
+if (!assignedBed) {
+reassigned.push(patient);
+return;
+}
+
+reassigned.push({
+...patient,
+chambre: assignedBed.chambre,
+lit: assignedBed.lit,
+});
+});
+});
+
+return reassigned;
+}
+
 
 const toggleManualVulnerabilityProfile = useCallback((patientId, profile) => {
 setPatientsState((prev) =>
@@ -1018,6 +1142,8 @@ updatedAt: new Date().toISOString(),
 })
 );
 }, []);
+
+
 
 const upsertResourceFollowUp = useCallback((patientId, resourceId, patch) => {
 setPatientsState((prev) =>

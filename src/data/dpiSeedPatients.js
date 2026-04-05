@@ -4,6 +4,7 @@ import { deriveFromStructuredIntake } from "../domain/intake/intakeDerivation";
 
 const NOMS = ["Martin", "Bernard", "Dubois", "Thomas", "Robert", "Petit"];
 const PRENOMS = ["Jean", "Marie", "Paul", "Luc", "Sophie", "Claire"];
+const SEXES = ["H", "F"];
 
 function randomDateOfBirth() {
   const year = 1925 + Math.floor(Math.random() * 60); // 1925–1985
@@ -25,46 +26,37 @@ function randomINS() {
 function randomIEP() {
   return "IEP" + Math.floor(Math.random() * 100000);
 }
+
 function random(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function weightedRandomScenario() {
-  const pool = PATIENT_SCENARIOS.flatMap((s) =>
-    Array(s.weight).fill(s)
-  );
+  const pool = PATIENT_SCENARIOS.flatMap((s) => Array(s.weight).fill(s));
   return random(pool);
 }
-
-
 
 function generatePatient(service, index) {
   const scenario = weightedRandomScenario();
   const structuredIntake = scenario.intake;
-
   const derived = deriveFromStructuredIntake(structuredIntake);
   const birthDate = randomDateOfBirth();
+  const sexe = random(SEXES);
 
   return {
     id: `dpi_${service.code}_${index}`,
-
     nom: random(NOMS),
     prenom: random(PRENOMS),
-
     dateNaissance: birthDate.toISOString().slice(0, 10),
     age: calculateAge(birthDate),
-
+    sexe,
     ins: randomINS(),
     iep: randomIEP(),
-
     service: service.label,
     serviceCode: service.code,
-
     chambre: String(200 + index),
     lit: "A",
-
     source: "DPI",
-
     structuredIntake,
 
     // mapping déjà appliqué
@@ -93,7 +85,7 @@ export function generateDPIPatients() {
 
     const count = Math.floor(service.capacity * occupancy);
 
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       patients.push(generatePatient(service, i));
     }
   });

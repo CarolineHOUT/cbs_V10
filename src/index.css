@@ -86,3 +86,21 @@ select,
 textarea {
   outline: none;
 }
+highlight-section {
+animation: highlightFlash 2s ease;
+}
+
+@keyframes highlightFlash {
+0% {
+box-shadow: 0 0 0 0 rgba(23, 55, 106, 0.4);
+background: #eef4ff;
+}
+100% {
+box-shadow: 0 0 0 0 rgba(23, 55, 106, 0);
+background: transparent;
+}
+}
+.highlight-section {
+animation: highlightFlash 2s ease;
+border-radius: 16px;
+}

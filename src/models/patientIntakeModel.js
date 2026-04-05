@@ -20,17 +20,18 @@ export function calculateAge(birthDate) {
 }
 
 export const emptyPatientIntake = {
-  identity: {
-    lastName: "",
-    firstName: "",
-    birthDate: "",
-    age: null,
-    ins: "",
-    iep: "",
-    service: "",
-    room: "",
-    bed: "",
-  },
+ identity: {
+  lastName: "",
+  firstName: "",
+  birthDate: "",
+  age: null,
+  sexe: "U",
+  ins: "",
+  iep: "",
+  service: "",
+  room: "",
+  bed: "",
+},
 
   stay: {
     admissionDate: "",
@@ -71,16 +72,17 @@ export const emptyPatientIntake = {
 
 export const demoPatientComplex = {
   identity: {
-    lastName: "MARTIN",
-    firstName: "Jeanne",
-    birthDate: "1942-09-14",
-    age: calculateAge("1942-09-14"),
-    ins: "2 42 09 14 123 456 78",
-    iep: "IEP-2026-004582",
-    service: "Médecine polyvalente",
-    room: "214",
-    bed: "B",
-  },
+     lastName: "MARTIN",
+  firstName: "Jeanne",
+  birthDate: "1942-09-14",
+  age: calculateAge("1942-09-14"),
+  sexe: "F",
+  ins: "2 42 09 14 123 456 78",
+  iep: "IEP-2026-004582",
+  service: "Médecine polyvalente",
+  room: "214",
+  bed: "B",
+},
 
   stay: {
     admissionDate: "2026-03-18",

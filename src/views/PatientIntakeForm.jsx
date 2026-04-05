@@ -44,6 +44,13 @@ function Field({ label, children }) {
   );
 }
 
+const SEX_OPTIONS = [
+  { value: "F", label: "Femme" },
+  { value: "H", label: "Homme" },
+  { value: "U", label: "Non renseigné" },
+];
+
+
 function buildSeverity(patientIntake) {
   const service = String(patientIntake?.identity?.service || "").toLowerCase();
   const vigilance = String(patientIntake?.identity?.vigilance || "").toLowerCase();
@@ -54,7 +61,7 @@ function buildSeverity(patientIntake) {
 export default function PatientIntakeForm() {
   const navigate = useNavigate();
   const { addSimulatedPatient } = usePatientSimulation();
-  const { patientIntake, updateField } = usePatientIntake();
+  const { patientIntake, updateField, updateStructuredIntake } = usePatientIntake();
 
   const identity = patientIntake?.identity || {};
   const territory = patientIntake?.territory || {};
@@ -79,150 +86,394 @@ export default function PatientIntakeForm() {
     updateField("identity", "bed", "");
   }
 
-  function handleCreatePatient() {
-    const id = Date.now().toString();
-    const severity = buildSeverity(patientIntake);
-    const newPatient = {
-      id,
-      nom: identity.lastName?.trim() || "Nom",
-      prenom: identity.firstName?.trim() || "Prénom",
-      dateNaissance: identity.birthDate || "",
-      age: identity.age || calculateAge(identity.birthDate || ""),
-      ins: identity.ins || "",
-      iep: identity.iep || "",
-      service: identity.service || "",
-      chambre: identity.room || "",
-      lit: identity.bed || "",
-      dateEntree: new Date().toISOString().slice(0, 10),
-      dateSortiePrevue: "",
-      orientation: "À définir",
-      severity,
-      gravite: severity,
-      blockReason: territory?.mainNeed || "À définir",
-      blocage: territory?.mainNeed || "",
-      intakeSelections: patientIntake?.intakeSelections || {},
-      dynamicNeeds: territory?.mainNeed ? [{ id: `need_${Date.now()}`, label: territory.mainNeed, statut: "actif", source: "recueil" }] : [],
-      dynamicCategories: [],
-      dynamicBlockages: [],
-      actionPlan: [],
-      hdjHistory: [],
-      resourceFollowUp: [],
-      spiritNotes: [],
-      history: [],
-      personneConfiance: identity.personneConfiance || "",
-      personneAPrevenir: identity.personneAPrevenir || "",
-      mesureProtection: identity.mesureProtection || "",
-      source: "SIMULATION",
-      createdAt: new Date().toISOString(),
-      territory: {
-        city: territory?.city || "Cherbourg-en-Cotentin",
-        postalCode: territory?.postalCode || "50100",
-        street: territory?.street || "",
-        housingType: territory?.housingType || "",
-        mainNeed: territory?.mainNeed || "",
-      },
-      adresse: {
-        city: territory?.city || "Cherbourg-en-Cotentin",
-        postalCode: territory?.postalCode || "50100",
-        street: territory?.street || "",
-        housingType: territory?.housingType || "",
-      },
-      vigilance: identity.vigilance || "",
-    };
+function handleCreatePatient() {
+  const id = Date.now().toString();
+  const severity = buildSeverity(patientIntake);
 
-    addSimulatedPatient(newPatient);
-    navigate("/dashboard", { state: { highlightPatientId: id } });
-  }
+ const structuredIntake = patientIntake?.structuredIntake || {};
 
-  return (
-    <div style={wrap}>
-      <div style={formColumns}>
-        <section style={panelStyle}>
-          <h3 style={sectionTitle}>Identité patient</h3>
-          <div style={grid2}>
-            <Field label="Nom"><input style={input} placeholder="Nom" value={identity.lastName || ""} onChange={(e) => updateIdentity("lastName", e.target.value)} /></Field>
-            <Field label="Prénom"><input style={input} placeholder="Prénom" value={identity.firstName || ""} onChange={(e) => updateIdentity("firstName", e.target.value)} /></Field>
-          </div>
+  const newPatient = {
+    id,
+    id,
+   id,
+  nom: identity.lastName?.trim() || "Nom",
+  prenom: identity.firstName?.trim() || "Prénom",
+  dateNaissance: identity.birthDate || "",
+  age: identity.age || calculateAge(identity.birthDate || ""),
+  sexe: identity.sexe || "U",
+  ins: identity.ins || "",
+  iep: identity.iep || "",
+  service: identity.service || "",
+  chambre: identity.room || "",
+  lit: identity.bed || "",
+    dateEntree: new Date().toISOString().slice(0, 10),
+    dateSortiePrevue: "",
+    orientation: "À définir",
+    severity,
+    gravite: severity,
+    blockReason: territory?.mainNeed || "À définir",
+    blocage: territory?.mainNeed || "",
 
-          <div style={grid3}>
-            <Field label="Date de naissance"><input type="date" style={input} value={identity.birthDate || ""} onChange={(e) => updateBirthDate(e.target.value)} /></Field>
-            <Field label="Âge"><input style={input} value={identity.age || ""} readOnly placeholder="Âge auto" /></Field>
-            <Field label="INS"><input style={input} placeholder="INS" value={identity.ins || ""} onChange={(e) => updateIdentity("ins", e.target.value)} /></Field>
-          </div>
+    structuredIntake,
 
-          <div style={grid2}>
-            <Field label="IEP"><input style={input} placeholder="IEP" value={identity.iep || ""} onChange={(e) => updateIdentity("iep", e.target.value)} /></Field>
-            <Field label="Service">
-              <select style={input} value={identity.service || ""} onChange={(e) => updateService(e.target.value)}>
-                <option value="">Sélectionner</option>
-                {SERVICES.map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
-              </select>
-            </Field>
-          </div>
+    intakeSelections: patientIntake?.intakeSelections || {},
 
-          <div style={grid2}>
-            <Field label="Chambre">
-              <select style={input} value={identity.room || ""} onChange={(e) => updateIdentity("room", e.target.value)} disabled={!selectedService}>
-                <option value="">Sélectionner</option>
-                {(selectedService?.rooms || []).map((room) => <option key={room} value={room}>{room}</option>)}
-              </select>
-            </Field>
-            <Field label="Lit">
-              <select style={input} value={identity.bed || ""} onChange={(e) => updateIdentity("bed", e.target.value)} disabled={!selectedService}>
-                <option value="">Sélectionner</option>
-                {(selectedService?.beds || []).map((bed) => <option key={bed} value={bed}>{bed}</option>)}
-              </select>
-            </Field>
-          </div>
+    dynamicNeeds: territory?.mainNeed
+      ? [
+          {
+            id: `need_${Date.now()}`,
+            label: territory.mainNeed,
+            statut: "actif",
+            source: "recueil",
+          },
+        ]
+      : [],
 
-          <div style={grid2}>
-            <Field label="Personne de confiance"><input style={input} placeholder="Nom / coordonnées" value={identity.personneConfiance || ""} onChange={(e) => updateIdentity("personneConfiance", e.target.value)} /></Field>
-            <Field label="Personne à prévenir"><input style={input} placeholder="Nom / coordonnées" value={identity.personneAPrevenir || ""} onChange={(e) => updateIdentity("personneAPrevenir", e.target.value)} /></Field>
-          </div>
+    dynamicCategories: [],
+    dynamicBlockages: [],
+    actionPlan: [],
+    hdjHistory: [],
+    resourceFollowUp: [],
+    spiritNotes: [],
+    history: [],
+    incidentHistory: [],
 
-          <div style={grid2}>
-            <Field label="Tutelle / curatelle"><input style={input} placeholder="Mesure de protection" value={identity.mesureProtection || ""} onChange={(e) => updateIdentity("mesureProtection", e.target.value)} /></Field>
-            <Field label="Vigilance">
-              <select style={input} value={identity.vigilance || ""} onChange={(e) => updateIdentity("vigilance", e.target.value)}>
-                <option value="">Sélectionner</option>
-                {VIGILANCE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-            </Field>
-          </div>
-        </section>
+    personneConfiance: {
+      nom: identity.personneConfiance || "",
+      prenom: "",
+      telephone: "",
+      lien: "",
+    },
 
-        <section style={panelStyle}>
-          <h3 style={sectionTitle}>Repères utiles</h3>
-          <div style={grid2}>
-            <Field label="Adresse"><input style={input} placeholder="Adresse" value={territory.street || ""} onChange={(e) => updateTerritory("street", e.target.value)} /></Field>
-            <Field label="Ville"><input style={input} placeholder="Ville" value={territory.city || ""} onChange={(e) => updateTerritory("city", e.target.value)} /></Field>
-          </div>
-          <div style={grid3}>
-            <Field label="Code postal"><input style={input} placeholder="Code postal" value={territory.postalCode || ""} onChange={(e) => updateTerritory("postalCode", e.target.value)} /></Field>
-            <Field label="Type d'habitat">
-              <select style={input} value={territory.housingType || ""} onChange={(e) => updateTerritory("housingType", e.target.value)}>
-                <option value="">Sélectionner</option>
-                {HABITAT_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-            </Field>
-            <Field label="Besoin principal"><input style={input} placeholder="Ex : sortie à sécuriser" value={territory.mainNeed || ""} onChange={(e) => updateTerritory("mainNeed", e.target.value)} /></Field>
-          </div>
+    personneAPrevenir: {
+      nom: identity.personneAPrevenir || "",
+      prenom: "",
+      telephone: "",
+      lien: "",
+    },
 
-          <div style={hintBlock}>
-            <div style={hintTitle}>À retenir</div>
-            <ul style={hintList}>
-              <li>Cette vue sert seulement à préparer la simulation avant le DPI.</li>
-              <li>Les critères sélectionnés à droite déclencheront les ressources du copilote.</li>
-              <li>En pédiatrie, on garde le socle adulte et on ajoute les besoins spécifiques de l’enfant.</li>
-            </ul>
-          </div>
-        </section>
-      </div>
+    mesureProtection: identity.mesureProtection || "",
+    source: "SIMULATION",
+    createdAt: new Date().toISOString(),
 
-      <button type="button" style={floatingButton} onClick={handleCreatePatient}>Créer le patient</button>
-    </div>
-  );
+    territory: {
+      city: territory?.city || "Cherbourg-en-Cotentin",
+      postalCode: territory?.postalCode || "50100",
+      street: territory?.street || "",
+      housingType: territory?.housingType || "",
+      mainNeed: territory?.mainNeed || "",
+    },
+
+    adresse: {
+      city: territory?.city || "Cherbourg-en-Cotentin",
+      postalCode: territory?.postalCode || "50100",
+      street: territory?.street || "",
+      housingType: territory?.housingType || "",
+    },
+
+    vigilance: identity.vigilance || "",
+  };
+
+  addSimulatedPatient(newPatient);
+  navigate("/dashboard", { state: { highlightPatientId: id } });
 }
+
+return (
+  <div style={wrap}>
+    <div style={formColumns}>
+      <section style={panelStyle}>
+        <h3 style={sectionTitle}>Identité patient</h3>
+
+        <div style={grid2}>
+          <Field label="Nom">
+            <input
+              style={input}
+              placeholder="Nom"
+              value={identity.lastName || ""}
+              onChange={(e) => updateIdentity("lastName", e.target.value)}
+            />
+          </Field>
+
+          <Field label="Prénom">
+            <input
+              style={input}
+              placeholder="Prénom"
+              value={identity.firstName || ""}
+              onChange={(e) => updateIdentity("firstName", e.target.value)}
+            />
+          </Field>
+        </div>
+
+        <div style={grid3}>
+          <div style={grid4}>
+  <Field label="Date de naissance">
+    <input
+      type="date"
+      style={input}
+      value={identity.birthDate || ""}
+      onChange={(e) => updateBirthDate(e.target.value)}
+    />
+  </Field>
+
+  <Field label="Âge">
+    <input
+      style={input}
+      value={identity.age || ""}
+      readOnly
+      placeholder="Âge auto"
+    />
+  </Field>
+
+  <Field label="Sexe">
+    <select
+      style={input}
+      value={identity.sexe || "U"}
+      onChange={(e) => updateIdentity("sexe", e.target.value)}
+    >
+      {SEX_OPTIONS.map((item) => (
+        <option key={item.value} value={item.value}>
+          {item.label}
+        </option>
+      ))}
+    </select>
+  </Field>
+
+  <Field label="INS">
+    <input
+      style={input}
+      placeholder="INS"
+      value={identity.ins || ""}
+      onChange={(e) => updateIdentity("ins", e.target.value)}
+    />
+  </Field>
+</div>
+        </div>
+
+        <div style={grid2}>
+          <Field label="IEP">
+            <input
+              style={input}
+              placeholder="IEP"
+              value={identity.iep || ""}
+              onChange={(e) => updateIdentity("iep", e.target.value)}
+            />
+          </Field>
+
+          <Field label="Service">
+            <select
+              style={input}
+              value={identity.service || ""}
+              onChange={(e) => updateService(e.target.value)}
+            >
+              <option value="">Sélectionner</option>
+              {SERVICES.map((s) => (
+                <option key={s.name} value={s.name}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
+        <div style={grid2}>
+          <Field label="Chambre">
+            <select
+              style={input}
+              value={identity.room || ""}
+              onChange={(e) => updateIdentity("room", e.target.value)}
+              disabled={!selectedService}
+            >
+              <option value="">Sélectionner</option>
+              {(selectedService?.rooms || []).map((room) => (
+                <option key={room} value={room}>
+                  {room}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Lit">
+            <select
+              style={input}
+              value={identity.bed || ""}
+              onChange={(e) => updateIdentity("bed", e.target.value)}
+              disabled={!selectedService}
+            >
+              <option value="">Sélectionner</option>
+              {(selectedService?.beds || []).map((bed) => (
+                <option key={bed} value={bed}>
+                  {bed}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
+        <div style={grid2}>
+          <Field label="Personne de confiance">
+            <input
+              style={input}
+              placeholder="Nom / coordonnées"
+              value={identity.personneConfiance || ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                updateIdentity("personneConfiance", value);
+                updateStructuredIntake("social.personneConfiance", value);
+              }}
+            />
+          </Field>
+
+          <Field label="Personne à prévenir">
+            <input
+              style={input}
+              placeholder="Nom / coordonnées"
+              value={identity.personneAPrevenir || ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                updateIdentity("personneAPrevenir", value);
+                updateStructuredIntake("social.personneAPrevenir", value);
+              }}
+            />
+          </Field>
+        </div>
+
+        <div style={grid2}>
+          <Field label="Tutelle / curatelle">
+            <input
+              style={input}
+              placeholder="Mesure de protection"
+              value={identity.mesureProtection || ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                updateIdentity("mesureProtection", value);
+                updateStructuredIntake("social.protectionJuridique", value);
+              }}
+            />
+          </Field>
+
+          <Field label="Vigilance">
+            <select
+              style={input}
+              value={identity.vigilance || ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                updateIdentity("vigilance", value);
+                updateStructuredIntake("social.isolementSocial", value === "Isolement");
+                updateStructuredIntake("securite.isolement", value === "Isolement");
+                updateStructuredIntake(
+                  "securite.troublesCognitifs",
+                  value === "Difficulté de compréhension"
+                );
+                updateStructuredIntake("securite.commentaire", value);
+              }}
+            >
+              <option value="">Sélectionner</option>
+              {VIGILANCE_OPTIONS.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      </section>
+
+      <section style={panelStyle}>
+        <h3 style={sectionTitle}>Repères utiles</h3>
+
+        <div style={grid2}>
+          <Field label="Adresse">
+            <input
+              style={input}
+              placeholder="Adresse"
+              value={territory.street || ""}
+              onChange={(e) => updateTerritory("street", e.target.value)}
+            />
+          </Field>
+
+          <Field label="Ville">
+            <input
+              style={input}
+              placeholder="Ville"
+              value={territory.city || ""}
+              onChange={(e) => updateTerritory("city", e.target.value)}
+            />
+          </Field>
+        </div>
+
+        <div style={grid3}>
+          <Field label="Code postal">
+            <input
+              style={input}
+              placeholder="Code postal"
+              value={territory.postalCode || ""}
+              onChange={(e) => updateTerritory("postalCode", e.target.value)}
+            />
+          </Field>
+
+          <Field label="Type d'habitat">
+            <select
+              style={input}
+              value={territory.housingType || ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                updateTerritory("housingType", value);
+                updateStructuredIntake(
+                  "social.precarite",
+                  value === "Hébergement précaire" || value === "Sans domicile"
+                );
+                updateStructuredIntake(
+                  "entourage.enInstitution",
+                  value === "EHPAD" || value === "Résidence autonomie"
+                );
+              }}
+            >
+              <option value="">Sélectionner</option>
+              {HABITAT_TYPES.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Besoin principal">
+            <input
+              style={input}
+              placeholder="Ex : sortie à sécuriser"
+              value={territory.mainNeed || ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                updateTerritory("mainNeed", value);
+                updateStructuredIntake("commentairesGeneraux", value);
+              }}
+            />
+          </Field>
+        </div>
+
+        <div style={hintBlock}>
+          <div style={hintTitle}>À retenir</div>
+          <ul style={hintList}>
+            <li>Cette vue sert seulement à préparer la simulation avant le DPI.</li>
+            <li>Les critères sélectionnés à droite déclencheront les ressources du copilote.</li>
+            <li>En pédiatrie, on garde le socle adulte et on ajoute les besoins spécifiques de l’enfant.</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+
+    <button type="button" style={floatingButton} onClick={handleCreatePatient}>
+      Créer le patient
+    </button>
+  </div>
+);
+}
+
+const grid4 = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: 12,
+};
 
 const wrap = { display: "grid", gap: 16 };
 const formColumns = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "stretch" };

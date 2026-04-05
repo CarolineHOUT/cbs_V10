@@ -1,0 +1,350 @@
+.carabbas-login-shell {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: linear-gradient(180deg, #f4f7fb 0%, #edf2f7 100%);
+}
+
+.carabbas-login-bg,
+.carabbas-login-bg--one,
+.carabbas-login-bg--two {
+  display: none;
+}
+
+.carabbas-login-grid {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 440px);
+  gap: 28px;
+  align-items: start;
+}
+
+.carabbas-auth-panel {
+  align-self: start;
+  margin-top: 26px;
+}
+
+.carabbas-brand-panel {
+  color: #17376a;
+  padding: 4px 0;
+  display: grid;
+  gap: 18px;
+  align-content: center;
+}
+
+.carabbas-brand-topline,
+.carabbas-footer-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.carabbas-brand-seal {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: #eaf1f8;
+  border: 1px solid #d8e2ee;
+  box-shadow: none;
+  color: #17376a;
+}
+
+.carabbas-brand-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #d8e2ee;
+  color: #5f728c;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.carabbas-brand-copy {
+  display: grid;
+  gap: 16px;
+  max-width: 700px;
+}
+
+
+
+.carabbas-brand-copy h1 {
+  margin: 0;
+  font-size: clamp(24px, 2.8vw, 38px);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  max-width: 620px;
+  color: #17376a;
+}
+
+.carabbas-brand-text {
+  margin: 0;
+  max-width: 620px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #5f728c;
+}
+
+.carabbas-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.carabbas-feature-card {
+  min-height: 145px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid #dbe4ef;
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.carabbas-feature-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: #edf4fb;
+  color: #17376a;
+}
+
+.carabbas-feature-card p {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.carabbas-feature-card p,
+.carabbas-auth-header p,
+.carabbas-auth-note span {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.carabbas-feature-card p {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.carabbas-brand-footer {
+  display: none;
+}
+
+.carabbas-footer-item {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #dbe4ef;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.carabbas-auth-panel {
+  padding: 32px;
+  border-radius: 22px;
+  background: #ffffff;
+  border: 1px solid #dbe4ef;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+  display: grid;
+  gap: 24px;
+}
+
+.carabbas-auth-header {
+  display: grid;
+  gap: 10px;
+}
+
+.carabbas-auth-kicker {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #71839b;
+}
+
+.carabbas-auth-header h2 {
+  margin: 0;
+  font-size: 30px;
+  color: #17376a;
+  letter-spacing: -0.03em;
+}
+
+.carabbas-auth-header p {
+  color: #5f728c;
+  font-size: 15px;
+}
+
+.carabbas-auth-form {
+  display: grid;
+  gap: 16px;
+}
+
+.carabbas-field {
+  display: grid;
+  gap: 8px;
+}
+
+.carabbas-field span {
+  font-size: 13px;
+  font-weight: 800;
+  color: #17376a;
+}
+
+.carabbas-field input {
+  width: 100%;
+  height: 52px;
+  border-radius: 14px;
+  border: 1px solid #d4deea;
+  background: #f8fbfd;
+  padding: 0 16px;
+  color: #17376a;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.carabbas-field input:focus {
+  outline: none;
+  border-color: #7fa3cc;
+  box-shadow: 0 0 0 4px rgba(23, 55, 106, 0.08);
+  background: #ffffff;
+}
+
+.carabbas-field input::placeholder {
+  color: #8a9aae;
+}
+
+.carabbas-auth-error {
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: #fff4f2;
+  border: 1px solid #f0c9c2;
+  color: #b13a2d;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.carabbas-submit-btn {
+  height: 54px;
+  border: 0;
+  border-radius: 14px;
+  background: #17376a;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(23, 55, 106, 0.14);
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.carabbas-submit-btn:hover {
+  background: #1d447f;
+  transform: translateY(-1px);
+}
+
+.carabbas-submit-btn:active {
+  transform: translateY(0);
+}
+
+.carabbas-auth-note {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: #f8fbfd;
+  border: 1px solid #dbe4ef;
+}
+
+.carabbas-auth-note strong {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #17376a;
+}
+
+.carabbas-auth-note span {
+  font-size: 13px;
+  color: #64748b;
+}
+
+@media (max-width: 1100px) {
+  .carabbas-login-grid {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 440px);
+  gap: 28px;
+  align-items: center;
+}
+
+ 
+
+  .carabbas-feature-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .carabbas-login-grid {
+    padding: 18px 14px 24px;
+    gap: 24px;
+  }
+
+  .carabbas-auth-panel {
+    padding: 22px;
+    border-radius: 18px;
+  }
+
+  .carabbas-brand-copy h1 {
+    font-size: 30px;
+  }
+
+  .carabbas-brand-eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.14em;
+  }
+
+  .carabbas-feature-card {
+    min-height: auto;
+  }
+}
+.carabbas-brand-logo {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 26px;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+}
+
+.carabbas-brand-logo-car {
+  color: #6f8fb8;
+  font-weight: 900;
+}
+
+.carabbas-brand-logo-abbas {
+  color: #17376a;
+  font-weight: 900;
+}

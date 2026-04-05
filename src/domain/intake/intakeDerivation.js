@@ -58,7 +58,11 @@ function resolveComplexityLabel(score) {
   return "standard";
 }
 
-function deriveVulnerabilityProfiles(structuredIntake = {}, derivedFreins = []) {
+function deriveVulnerabilityProfiles(
+  structuredIntake = {},
+  derivedFreins = [],
+  derivedConsequences = []
+) {
   const profiles = [];
 
   const addProfile = (code, label, level = "medium") => {
@@ -68,16 +72,13 @@ function deriveVulnerabilityProfiles(structuredIntake = {}, derivedFreins = []) 
   };
 
   if (
-    structuredIntake?.social?.isolementSocial ||
-    structuredIntake?.entourage?.seul
+    structuredIntake?.social?.isolementSocial === true ||
+    structuredIntake?.entourage?.seul === true
   ) {
     addProfile("isolement_social", "Isolement social", "high");
   }
 
-  if (
-    structuredIntake?.entourage?.aucuneAide ||
-    structuredIntake?.entourage?.aidant === false
-  ) {
+  if (structuredIntake?.entourage?.aucuneAide === true) {
     addProfile("absence_relais", "Absence de relais / aidant", "high");
   }
 
@@ -91,34 +92,33 @@ function deriveVulnerabilityProfiles(structuredIntake = {}, derivedFreins = []) 
   }
 
   if (
-    structuredIntake?.securite?.troublesCognitifs ||
-    structuredIntake?.securite?.desorientation
+    structuredIntake?.securite?.troublesCognitifs === true ||
+    structuredIntake?.securite?.desorientation === true
   ) {
     addProfile("troubles_cognitifs", "Troubles cognitifs", "high");
   }
 
-  if (structuredIntake?.securite?.risqueChute) {
+  if (structuredIntake?.securite?.risqueChute === true) {
     addProfile("risque_chute", "Risque de chute", "medium");
   }
 
   if (
-    structuredIntake?.traitement?.difficulte?.observanceFragile ||
-    structuredIntake?.traitement?.difficulte?.oublis ||
-    structuredIntake?.traitement?.difficulte?.confusion
+    structuredIntake?.traitement?.difficulte?.observanceFragile === true ||
+    structuredIntake?.traitement?.difficulte?.oublis === true ||
+    structuredIntake?.traitement?.difficulte?.confusion === true
   ) {
     addProfile("observance_fragile", "Observance fragile", "medium");
   }
 
-  if (
-    derivedFreins.some((frein) =>
-      [
-        "retour_non_securise",
-        "isolement",
-        "perte_autonomie",
-        "troubles_cognitifs",
-      ].includes(frein.code)
-    )
-  ) {
+  const hasRiskFrein = derivedFreins.some((frein) =>
+    ["isolement", "perte_autonomie", "troubles_cognitifs"].includes(frein.code)
+  );
+
+  const hasRiskConsequence = derivedConsequences.some((item) =>
+    ["retour_non_securise", "sortie_haut_risque"].includes(item.code)
+  );
+
+  if (hasRiskFrein || hasRiskConsequence) {
     addProfile("sortie_a_risque", "Sortie à risque", "high");
   }
 
@@ -174,7 +174,8 @@ export function deriveFromStructuredIntake(structuredIntake = {}) {
 
   const vulnerabilityProfiles = deriveVulnerabilityProfiles(
     structuredIntake,
-    derivedFreins
+    derivedFreins,
+    derivedConsequences
   );
 
   const isVulnerable = vulnerabilityProfiles.length > 0;

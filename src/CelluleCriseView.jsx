@@ -1,11 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import AppHeader from "./components/AppHeader";
+import { AppShell } from "./components/AppShell";
 import { patients as staticPatients } from "./data/patients";
 import { usePatientSimulation } from "./context/PatientSimulationContext";
 import "./CelluleCriseView.css";
 
+
 const STORAGE_KEY = "carabbas_crise_v4";
 const HISTORY_KEY = "carabbas_crise_v4_history";
+const ORIGIN_KEY = "carabbas_crise_origin_v1";
 const COPILOT_ACTIONS_PREFIX = "carabbas_staff_to_copilot_actions_";
 
 const STAFF_DIRECTORY = [
@@ -23,15 +27,6 @@ const STAFF_DIRECTORY = [
 { id: "soc2", name: "Mme Lambert", role: "Assistante sociale", service: "Équipe sociale", keywords: ["social", "protection", "famille"] },
 { id: "dac1", name: "DAC Cotentin", role: "DAC", service: "Territoire", keywords: ["dac", "coordination"] },
 { id: "hdj1", name: "Secrétariat HDJ", role: "Secrétariat", service: "HDJ", keywords: ["hdj", "secretariat"] },
-];
-
-const MENU_ITEMS = [
-{ id: "synthese", label: "Synthèse" },
-{ id: "patients", label: "Patients" },
-{ id: "intervenants", label: "Intervenants" },
-{ id: "organisation", label: "Organisation" },
-{ id: "decisions", label: "Décisions" },
-{ id: "historique", label: "Historique" },
 ];
 
 function safe(value, fallback = "Non renseigné") {
@@ -52,12 +47,6 @@ return String(value || "")
 
 function uniq(values) {
 return Array.from(new Set(values.filter(Boolean)));
-}
-
-function shortName(patient) {
-const first = String(patient?.prenom || "").trim();
-const last = String(patient?.nom || "").trim().toUpperCase();
-return `${first ? `${first.charAt(0)}. ` : ""}${last || "PATIENT"}`;
 }
 
 function formatShortDate(value) {
@@ -185,6 +174,11 @@ if (typeof window === "undefined") return;
 window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function clearJson(key) {
+if (typeof window === "undefined") return;
+window.localStorage.removeItem(key);
+}
+
 function searchDirectory(query) {
 const q = normalize(query);
 if (!q) return STAFF_DIRECTORY;
@@ -231,7 +225,7 @@ return [
 ...(selectedPatients.length
 ? selectedPatients.map((patient) => {
 const tags = getPatientKeywords(patient).join(", ");
-return `- ${shortName(patient)} · ${safe(patient.service, "Service")} · J+${getLengthOfStay(patient)} · ${getBlockageLabel(patient)}${tags ? ` · ${tags}` : ""}`;
+return `- ${safe(patient.nom, "Nom")} ${safe(patient.prenom, "")} · ${safe(patient.service, "Service")} · J+${getLengthOfStay(patient)} · ${getBlockageLabel(patient)}${tags ? ` · ${tags}` : ""}`;
 })
 : ["- Aucun patient sélectionné"]),
 ].join("\n");
@@ -241,9 +235,9 @@ function Badge({ color = "neutral", children }) {
 return <span className={`cc-badge ${color}`}>{children}</span>;
 }
 
-function SectionCard({ title, subtitle, actions, children }) {
+function SectionCard({ title, subtitle, actions, children, hero = false }) {
 return (
-<section className="cc-card">
+<section className={`cc-card ${hero ? "cc-card--hero" : ""}`}>
 <div className="cc-card__head">
 <div>
 <h2 className="cc-card__title">{title}</h2>
@@ -274,7 +268,7 @@ return (
 <option value="">Global cellule</option>
 {selectedPatients.map((patient) => (
 <option key={patient.id} value={patient.id}>
-{shortName(patient)}
+{safe(patient.nom)} {safe(patient.prenom, "")}
 </option>
 ))}
 </select>
@@ -326,6 +320,85 @@ return (
 );
 }
 
+function PatientCard({
+patient,
+selected,
+onToggle,
+navigate,
+openPatientId,
+setOpenPatientId,
+}) {
+const priority = getPriority(patient);
+const ident = getIdentityVigilance(patient);
+const isOpen = openPatientId === patient.id;
+
+return (
+<div className={`cc-patient-row ${selected ? "is-selected" : ""}`}>
+<div
+className="cc-patient-row__main"
+onClick={() => setOpenPatientId(isOpen ? null : patient.id)}
+>
+<div className="cc-patient-row__cell cc-patient-row__cell--check">
+<input
+type="checkbox"
+checked={selected}
+onChange={() => onToggle(patient.id)}
+onClick={(e) => e.stopPropagation()}
+/>
+</div>
+
+<div className="cc-patient-row__cell cc-patient-row__cell--name">
+{safe(patient.nom)} {safe(patient.prenom, "")}
+</div>
+
+<div className="cc-patient-row__cell">{safe(patient.service, "—")}</div>
+
+<div className="cc-patient-row__cell">{safe(patient.chambre, "—")}</div>
+
+<div className="cc-patient-row__cell">{safe(patient.lit, "—")}</div>
+
+<div className="cc-patient-row__cell">J+{getLengthOfStay(patient)}</div>
+
+<div className="cc-patient-row__cell">
+<Badge color={ident.color}>Identito {ident.label}</Badge>
+</div>
+
+<div className="cc-patient-row__cell">
+<Badge color={priority.color}>{priority.label}</Badge>
+</div>
+
+<div className="cc-patient-row__cell cc-patient-row__cell--block">
+{getBlockageLabel(patient)}
+</div>
+</div>
+
+{isOpen && (
+<div className="cc-patient-row__details">
+<div className="cc-patient-row__details-grid">
+<div><strong>Date de naissance :</strong> {safe(patient.dateNaissance, "—")}</div>
+<div><strong>IEP :</strong> {safe(patient.iep, "—")}</div>
+<div><strong>INS :</strong> {safe(patient.ins, "—")}</div>
+<div><strong>Solution :</strong> {safe(getSolutionLabel(patient), "—")}</div>
+</div>
+
+<div className="cc-card__actions">
+<button type="button" className="cc-link-btn" onClick={() => navigate(`/patient/${patient.id}`)}>
+Fiche patient
+</button>
+<button type="button" className="cc-link-btn" onClick={() => navigate(`/patient/${patient.id}?tab=staff`)}>
+Staff
+</button>
+<button type="button" className="cc-link-btn" onClick={() => navigate(`/copilote/${patient.id}`)}>
+Copilote
+</button>
+</div>
+</div>
+)}
+</div>
+);
+
+}
+
 export default function CelluleCriseView() {
 const navigate = useNavigate();
 const { patientsSimulated = [] } = usePatientSimulation() || {};
@@ -352,14 +425,19 @@ facilitator: "",
 objective: "Arbitrer les situations complexes et sorties bloquées",
 selectedPatientIds: [],
 });
+
 const [filters, setFilters] = useState({
+service: "",
+patientId: "",
 onlyCritical: false,
 withoutSolution: false,
 longStay: false,
 vulnerable: false,
 search: "",
 });
+
 const [participants, setParticipants] = useState([]);
+const [openPatientId, setOpenPatientId] = useState(null);
 const [staffSearch, setStaffSearch] = useState("");
 const [history, setHistory] = useState([]);
 const [versions, setVersions] = useState([]);
@@ -378,7 +456,17 @@ useEffect(() => {
 const stored = readJson(STORAGE_KEY, null);
 const storedHistory = readJson(HISTORY_KEY, []);
 if (stored) {
-setCrisis(stored.crisis || crisis);
+setCrisis(stored.crisis || {
+title: "Cellule de crise – Sorties complexes",
+status: "Brouillon",
+scheduledDate: "",
+scheduledTime: "",
+duration: "30 min",
+location: "Salle de staff",
+facilitator: "",
+objective: "Arbitrer les situations complexes et sorties bloquées",
+selectedPatientIds: [],
+});
 setParticipants(stored.participants || []);
 setDecisions(stored.decisions || []);
 setVersions(stored.versions || []);
@@ -409,7 +497,7 @@ confirmed: existing?.confirmed ?? false,
 manual.forEach((p) => map.set(p.id, p));
 return Array.from(map.values());
 });
-}, [crisis.selectedPatientIds]);
+}, [selectedPatients]);
 
 useEffect(() => {
 writeJson(STORAGE_KEY, { crisis, participants, decisions, versions });
@@ -437,9 +525,16 @@ snapshot: { crisis, participants, decisions },
 setVersions((prev) => [entry, ...prev]);
 }
 
+const serviceOptions = useMemo(
+() => uniq(allPatients.map((p) => safe(p.service, "")).filter(Boolean)).sort((a, b) => a.localeCompare(b)),
+[allPatients]
+);
+
 const filteredPatients = useMemo(() => {
 return allPatients
 .filter((patient) => {
+if (filters.service && safe(patient.service, "") !== filters.service) return false;
+if (filters.patientId && String(patient.id) !== String(filters.patientId)) return false;
 if (filters.onlyCritical && getPriority(patient).label !== "Critique") return false;
 if (filters.withoutSolution && getSolutionLabel(patient) !== "Aucune") return false;
 if (filters.longStay && getLengthOfStay(patient) < 10) return false;
@@ -449,12 +544,19 @@ if (filters.search) {
 const hay = normalize([
 patient.nom,
 patient.prenom,
+patient.dateNaissance,
+patient.iep,
+patient.ins,
 patient.service,
+patient.chambre,
+patient.lit,
 getBlockageLabel(patient),
+getSolutionLabel(patient),
 ...getPatientKeywords(patient),
 ].join(" "));
 if (!hay.includes(normalize(filters.search))) return false;
 }
+
 return true;
 })
 .sort((a, b) => getPriority(b).score - getPriority(a).score);
@@ -559,7 +661,7 @@ const patient = allPatients.find((p) => String(p.id) === String(decisionDraft.pa
 const entry = {
 id: `dec_${Date.now()}`,
 ...decisionDraft,
-patientLabel: patient ? shortName(patient) : "Global cellule",
+patientLabel: patient ? `${safe(patient.nom)} ${safe(patient.prenom, "")}` : "Global cellule",
 createdAt: new Date().toISOString(),
 };
 
@@ -593,6 +695,29 @@ window.print();
 addHistory("Synthèse imprimée");
 }
 
+function validateAndReturn() {
+const now = new Date().toISOString();
+
+const nextCrisis = {
+...crisis,
+status: "Planifiée",
+validatedAt: now,
+};
+
+setCrisis(nextCrisis);
+writeJson(STORAGE_KEY, { crisis: nextCrisis, participants, decisions, versions });
+addHistory("Cellule validée");
+
+const origin = readJson(ORIGIN_KEY, null);
+if (origin?.returnTo) {
+clearJson(ORIGIN_KEY);
+navigate(origin.returnTo);
+return;
+}
+
+navigate("/dashboard");
+}
+
 const menuWithBadges = [
 { id: "synthese", label: "Synthèse", badge: String(selectedPatients.length) },
 { id: "patients", label: "Patients", badge: String(filteredPatients.length) },
@@ -603,6 +728,7 @@ const menuWithBadges = [
 ];
 
 return (
+<AppShell header={<AppHeader />}>
 <div className="cc-page">
 <div className="cc-layout">
 <aside className="cc-sidebar">
@@ -622,19 +748,50 @@ onClick={() => setActiveTab(item.id)}
 
 <main className="cc-main">
 <SectionCard
-title={crisis.title}
-subtitle="Pilotage collectif des situations complexes et sorties bloquées."
+hero
+title="Cellule de crise"
+subtitle="Pilotage collectif des situations complexes"
 actions={
 <>
-<Badge color={crisis.status === "Clôturée" ? "green" : crisis.status === "Planifiée" ? "blue" : "neutral"}>
-{crisis.status}
-</Badge>
-<Badge color={tension.color}>Tension {tension.label}</Badge>
-<button type="button" className="cc-btn ghost" onClick={copyConvocation}>Copier convocation</button>
-<button type="button" className="cc-btn ghost" onClick={printPreparation}>Imprimer</button>
 <button
 type="button"
-className="cc-btn primary"
+className="cc-btn ghost"
+onClick={() => navigate("/dashboard")}
+>
+← Retour dashboard
+</button>
+
+<Badge
+color={
+crisis.status === "Clôturée"
+? "green"
+: crisis.status === "Planifiée"
+? "blue"
+: "neutral"
+}
+>
+{crisis.status}
+</Badge>
+
+<button
+type="button"
+className="cc-btn ghost"
+onClick={copyConvocation}
+>
+Copier convocation
+</button>
+
+<button
+type="button"
+className="cc-btn ghost"
+onClick={printPreparation}
+>
+Imprimer
+</button>
+
+<button
+type="button"
+className="cc-btn ghost"
 onClick={() => {
 createVersion("Sauvegarde manuelle", "Version enregistrée manuellement");
 addHistory("Version créée");
@@ -642,8 +799,17 @@ addHistory("Version créée");
 >
 Créer version
 </button>
+
+<button
+type="button"
+className="cc-btn primary"
+onClick={validateAndReturn}
+>
+✔ Valider
+</button>
 </>
 }
+
 >
 <div className="cc-kpis">
 <div className="cc-kpi"><span>Patients</span><strong>{selectedPatients.length}</strong></div>
@@ -662,7 +828,17 @@ Créer version
 <div className="cc-summary-box"><span>Sans solution</span><strong>{summary.noSolution}</strong></div>
 <div className="cc-summary-box"><span>Blocage dominant</span><strong>{summary.dominantBlockage}</strong></div>
 </div>
-
+<div className="cc-patient-table-head">
+<div></div>
+<div>Patient</div>
+<div>Service</div>
+<div>Chambre</div>
+<div>Lit</div>
+<div>Séjour</div>
+<div>Identito</div>
+<div>Priorité</div>
+<div>Blocage</div>
+</div>
 <div className="cc-list">
 {preparedPatients.length === 0 ? (
 <div className="cc-empty">Aucun patient sélectionné.</div>
@@ -671,7 +847,7 @@ preparedPatients.map(({ patient, priority, ident, tags }) => (
 <div key={patient.id} className="cc-prep-card">
 <div className="cc-prep-card__head">
 <div>
-<strong>{shortName(patient)}</strong>
+<strong>{safe(patient.nom)} {safe(patient.prenom, "")}</strong>
 <div className="cc-small">{safe(patient.service, "Service")} · J+{getLengthOfStay(patient)}</div>
 </div>
 <Badge color={priority.color}>{priority.label}</Badge>
@@ -693,64 +869,76 @@ preparedPatients.map(({ patient, priority, ident, tags }) => (
 )}
 
 {activeTab === "patients" && (
-<SectionCard title="Patients" subtitle="Sélectionner les situations à traiter en cellule.">
-<div className="cc-filters">
+<SectionCard title="Patients" subtitle="Filtrage par service, patient et recherche intelligente.">
+<div className="cc-filters-bar">
+
+<div className="cc-filter search">
 <input
 className="cc-input"
-placeholder="Recherche patient / service / blocage"
+placeholder="🔍 Rechercher patient, INS, service..."
 value={filters.search}
-onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
+onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))}
 />
-<label className="cc-toggle"><input type="checkbox" checked={filters.onlyCritical} onChange={() => setFilters((prev) => ({ ...prev, onlyCritical: !prev.onlyCritical }))} />Critiques</label>
-<label className="cc-toggle"><input type="checkbox" checked={filters.withoutSolution} onChange={() => setFilters((prev) => ({ ...prev, withoutSolution: !prev.withoutSolution }))} />Sans solution</label>
-<label className="cc-toggle"><input type="checkbox" checked={filters.longStay} onChange={() => setFilters((prev) => ({ ...prev, longStay: !prev.longStay }))} />DMS longue</label>
-<label className="cc-toggle"><input type="checkbox" checked={filters.vulnerable} onChange={() => setFilters((prev) => ({ ...prev, vulnerable: !prev.vulnerable }))} />Vulnérables</label>
 </div>
 
+<div className="cc-filter">
+<select
+className="cc-input"
+value={filters.service}
+onChange={(e) => setFilters((p) => ({ ...p, service: e.target.value }))}
+>
+<option value="">Tous services</option>
+{serviceOptions.map((s) => (
+<option key={s} value={s}>{s}</option>
+))}
+</select>
+</div>
+
+<div className="cc-filter">
+<select
+className="cc-input"
+value={filters.patientId}
+onChange={(e) => setFilters((p) => ({ ...p, patientId: e.target.value }))}
+>
+<option value="">Tous patients</option>
+{allPatients.map((p) => (
+<option key={p.id} value={p.id}>
+{p.nom} {p.prenom}
+</option>
+))}
+</select>
+</div>
+
+<div className="cc-filter toggles">
+<label><input type="checkbox" checked={filters.onlyCritical} onChange={() => setFilters(p => ({...p, onlyCritical: !p.onlyCritical}))}/> Critiques</label>
+<label><input type="checkbox" checked={filters.withoutSolution} onChange={() => setFilters(p => ({...p, withoutSolution: !p.withoutSolution}))}/> Sans solution</label>
+<label><input type="checkbox" checked={filters.longStay} onChange={() => setFilters(p => ({...p, longStay: !p.longStay}))}/> DMS</label>
+<label><input type="checkbox" checked={filters.vulnerable} onChange={() => setFilters(p => ({...p, vulnerable: !p.vulnerable}))}/> Vulnérables</label>
+</div>
+
+</div>
 <div className="cc-list">
-{filteredPatients.map((patient) => {
-const priority = getPriority(patient);
-const ident = getIdentityVigilance(patient);
-const tags = getPatientKeywords(patient);
-const selected = crisis.selectedPatientIds.includes(patient.id);
-
-return (
-<div key={patient.id} className={`cc-patient-card ${selected ? "is-selected" : ""}`}>
-<div className="cc-patient-card__head">
-<label className="cc-checkbox">
-<input type="checkbox" checked={selected} onChange={() => togglePatient(patient.id)} />
-<strong>{shortName(patient)}</strong>
-</label>
-<Badge color={priority.color}>{priority.label}</Badge>
-</div>
-
-<div className="cc-meta">{safe(patient.service, "Service")} · J+{getLengthOfStay(patient)}</div>
-
-<div className="cc-inline-badges">
-<Badge color={ident.color}>Identito {ident.label}</Badge>
-{isMedicalReady(patient) ? <Badge color="blue">Sort med</Badge> : null}
-</div>
-
-<div className="cc-small"><strong>Blocage :</strong> {getBlockageLabel(patient)}</div>
-
-<div className="cc-tags">
-{tags.map((tag) => <span key={tag} className="cc-tag">{tag}</span>)}
-</div>
-
-<div className="cc-card__actions">
-<button type="button" className="cc-link-btn" onClick={() => navigate(`/patient/${patient.id}`)}>Fiche patient</button>
-<button type="button" className="cc-link-btn" onClick={() => navigate(`/patient/${patient.id}?tab=staff`)}>Staff</button>
-<button type="button" className="cc-link-btn" onClick={() => navigate(`/copilote/${patient.id}`)}>Copilot</button>
-</div>
-</div>
-);
-})}
+{filteredPatients.length === 0 ? (
+<div className="cc-empty">Aucun patient trouvé avec ces filtres.</div>
+) : (
+filteredPatients.map((patient) => (
+<PatientCard
+key={patient.id}
+patient={patient}
+selected={crisis.selectedPatientIds.includes(patient.id)}
+onToggle={togglePatient}
+navigate={navigate}
+openPatientId={openPatientId}
+setOpenPatientId={setOpenPatientId}
+/>
+))
+)}
 </div>
 </SectionCard>
 )}
 
 {activeTab === "intervenants" && (
-<SectionCard title="Intervenants" subtitle="Recherche intelligente et sélection rapide.">
+<SectionCard title="Intervenants" subtitle="Recherche intelligente et sélection rapide des personnes disposant d’un accès CarAbbaS.">
 <input
 className="cc-input"
 placeholder="Rechercher un soignant, rôle, service..."
@@ -784,8 +972,14 @@ participants.map((participant) => (
 </div>
 
 <div className="cc-card__actions">
-<label className="cc-toggle"><input type="checkbox" checked={participant.selected} onChange={() => toggleParticipant(participant.id, "selected")} />Sélectionné</label>
-<label className="cc-toggle"><input type="checkbox" checked={participant.confirmed} onChange={() => toggleParticipant(participant.id, "confirmed")} />Confirmé</label>
+<label className="cc-toggle">
+<input type="checkbox" checked={participant.selected} onChange={() => toggleParticipant(participant.id, "selected")} />
+Sélectionné
+</label>
+<label className="cc-toggle">
+<input type="checkbox" checked={participant.confirmed} onChange={() => toggleParticipant(participant.id, "confirmed")} />
+Confirmé
+</label>
 </div>
 </div>
 ))
@@ -801,22 +995,27 @@ participants.map((participant) => (
 <span>Date</span>
 <input className="cc-input" type="date" value={crisis.scheduledDate} onChange={(e) => setCrisis((p) => ({ ...p, scheduledDate: e.target.value }))} />
 </label>
+
 <label className="cc-field">
 <span>Heure</span>
 <input className="cc-input" type="time" value={crisis.scheduledTime} onChange={(e) => setCrisis((p) => ({ ...p, scheduledTime: e.target.value }))} />
 </label>
+
 <label className="cc-field">
 <span>Durée</span>
 <input className="cc-input" value={crisis.duration} onChange={(e) => setCrisis((p) => ({ ...p, duration: e.target.value }))} />
 </label>
+
 <label className="cc-field">
 <span>Lieu</span>
 <input className="cc-input" value={crisis.location} onChange={(e) => setCrisis((p) => ({ ...p, location: e.target.value }))} />
 </label>
+
 <label className="cc-field">
 <span>Animateur</span>
 <input className="cc-input" value={crisis.facilitator} onChange={(e) => setCrisis((p) => ({ ...p, facilitator: e.target.value }))} />
 </label>
+
 <label className="cc-field cc-field--full">
 <span>Objectif</span>
 <input className="cc-input" value={crisis.objective} onChange={(e) => setCrisis((p) => ({ ...p, objective: e.target.value }))} />
@@ -840,7 +1039,7 @@ Clôturer
 {activeTab === "decisions" && (
 <SectionCard
 title="Décisions"
-subtitle="Décisions centralisées et lien avec le Copilot."
+subtitle="Décisions centralisées et lien avec le copilote."
 actions={
 <button type="button" className="cc-btn primary" onClick={() => setShowDecisionModal(true)}>
 + Ajouter décision
@@ -866,7 +1065,7 @@ decisions.map((decision) => (
 {decision.patientId ? (
 <div className="cc-card__actions">
 <button type="button" className="cc-link-btn" onClick={() => navigate(`/copilote/${decision.patientId}`)}>
-Ouvrir Copilot
+Ouvrir Copilote
 </button>
 </div>
 ) : null}
@@ -919,5 +1118,7 @@ setDraft={setDecisionDraft}
 onSave={addDecision}
 />
 </div>
+</AppShell>
+
 );
 }

@@ -1,37 +1,99 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import UnifiedDemoWorkspace from "./components/UnifiedDemoWorkspace";
+import { useEffect, useState } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+
+import LoginView from "./views/LoginView";
 import Dashboard from "./Dashboard";
 import PatientView from "./PatientView";
 import CopiloteView from "./copilote/CopiloteView";
-import AseLettreLiaisonView from "./ase/AseLettreLiaisonView";
-import AsePreparationInstanceView from "./ase/AsePreparationInstanceView";
+import UnifiedDemoWorkspace from "./components/UnifiedDemoWorkspace";
 import CelluleCriseView from "./CelluleCriseView";
-import { PatientSimulationProvider } from "./context/PatientSimulationContext";
 import IncidentView from "./IncidentViewTemp";
 
-function App() {
-  return (
-    <PatientSimulationProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<UnifiedDemoWorkspace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/patient/:id" element={<PatientView />} />
-          <Route path="/copilote/:id" element={<CopiloteView />} />
-          <Route path="/crise" element={<CelluleCriseView />} />
-          <Route path="/incident/:id" element={<IncidentView />} />
-
-          {/* 🔥 AJOUT ASE */}
-          <Route path="/ase/lettre-liaison" element={<AseLettreLiaisonView />} />
-          <Route
-            path="/ase/preparation-instance"
-            element={<AsePreparationInstanceView />}
-          />
-        </Routes>
-      </BrowserRouter>
-    </PatientSimulationProvider>
-  );
+function RequireAuth({ user, children }) {
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
 }
 
-export default App;
+export default function App() {
+  const [user, setUser] = useState(null);
 
+  useEffect(() => {
+    const savedUser = localStorage.getItem("user");
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
+    }
+  }, []);
+
+  const handleLogin = (userData) => {
+    localStorage.setItem("user", JSON.stringify(userData));
+    setUser(userData);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("user");
+    setUser(null);
+  };
+
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginView onLogin={handleLogin} />} />
+
+      <Route
+        path="/dashboard"
+        element={
+          <RequireAuth user={user}>
+            <Dashboard user={user} onLogout={handleLogout} />
+          </RequireAuth>
+        }
+      />
+
+      <Route
+        path="/patient/:id"
+        element={
+          <RequireAuth user={user}>
+            <PatientView user={user} onLogout={handleLogout} />
+          </RequireAuth>
+        }
+      />
+
+      <Route
+        path="/copilote/:id"
+        element={
+          <RequireAuth user={user}>
+            <CopiloteView user={user} onLogout={handleLogout} />
+          </RequireAuth>
+        }
+      />
+
+      <Route
+        path="/crise"
+        element={
+          <RequireAuth user={user}>
+            <CelluleCriseView user={user} onLogout={handleLogout} />
+          </RequireAuth>
+        }
+      />
+
+      <Route
+        path="/incident/:id"
+        element={
+          <RequireAuth user={user}>
+            <IncidentView user={user} onLogout={handleLogout} />
+          </RequireAuth>
+        }
+      />
+
+      <Route
+        path="/"
+        element={<Navigate to={user ? "/dashboard" : "/login"} replace />}
+      />
+
+      <Route
+        path="*"
+        element={<Navigate to={user ? "/dashboard" : "/login"} replace />}
+      />
+    </Routes>
+  );
+}
