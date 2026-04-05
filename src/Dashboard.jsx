@@ -851,6 +851,14 @@ note: "",
 });
 const [bedFormError, setBedFormError] = useState("");
 
+function toggleService(service) {
+setSelectedServices((prev) =>
+prev.includes(service)
+? prev.filter((item) => item !== service)
+: [...prev, service]
+);
+}
+
 const services = useMemo(
 () =>
 Array.from(
@@ -868,13 +876,7 @@ const scopedCapacity = useMemo(
 [selectedServices]
 );
 
-function toggleService(service) {
-setSelectedServices((prev) =>
-prev.includes(service)
-? prev.filter((item) => item !== service)
-: [...prev, service]
-);
-}
+
 
 function resetServices() {
 setSelectedServices([]);
@@ -1642,6 +1644,15 @@ detail: `moy ${dmsMetrics.mean} / méd ${dmsMetrics.median}`,
 kind: "critical",
 },
 ];
+
+const toolbarGrid = {
+display: "grid",
+gridTemplateColumns: "1fr 1fr",
+gap: 14,
+alignItems: "start",
+width: "100%",
+minWidth: 0,
+};
 
 return (
 <AppShell
@@ -3427,14 +3438,7 @@ boxShadow: "0 10px 24px rgba(15,23,42,.06)",
 };
 
 
-const toolbarGrid = {
-display: "grid",
-gridTemplateColumns: "1fr 1fr",
-gap: 14,
-alignItems: "start",
-width: "100%",
-minWidth: 0,
-};
+
 
 const listCard = {
 padding: 10,
