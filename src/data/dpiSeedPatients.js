@@ -76,12 +76,8 @@ export function generateDPIPatients() {
   const patients = [];
 
   HOSPITAL_SERVICES.forEach((service) => {
-    const occupancy =
-      service.code === "MPV1" ||
-      service.code === "MPV3" ||
-      service.code === "USP"
-        ? 0.9
-        : 0.7;
+   const occupancy = 0.7;
+   
 
     const count = Math.floor(service.capacity * occupancy);
 

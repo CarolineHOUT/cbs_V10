@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { getHDJSuggestionsFromStructuredIntake } from "../domain/hdj/hdjSuggestionEngine";
 import { getOrientationSuggestionsFromPatient } from "./copiloteOrientationEngine";
+import { medecins, pilotes } from "../data/users";
 function formatRelativeTime(dateString) {
 if (!dateString) return "";
 
@@ -98,7 +99,6 @@ const MENU_ITEMS = [
   { id: "ressources", label: "Ressources" },
   { id: "hdj", label: "HDJ" },
   { id: "demandes", label: "Demandes" },
-  { id: "formulaires", label: "Formulaires" },
   { id: "synthese", label: "Synthèse" },
 ];
 
@@ -1065,12 +1065,11 @@ return [
 ? decisions.slice(0, 8).map((d) => `- ${formatDateTime(d.date)} · ${d.text}`)
 : ["- Aucune décision tracée"]),
 "",
-
-
 `Médecin référent : ${coordination?.medecin || "Non renseigné"}`,
 `Cadre : ${coordination?.cadre || "Non renseigné"}`,
 ].join("\n");
 }
+
 
 function validateHADSelection(hadEligibility) {
 const checkedItems = safeArray(hadEligibility?.checkedItems);
@@ -1483,47 +1482,20 @@ role: savedUser?.role || "inconnu",
 };
 
 const serviceAgents = useMemo(() => {
-const raw =
-safeArray(patient?.serviceAgents) ||
-safeArray(patient?.agentsService) ||
-safeArray(patient?.staff) ||
-[];
-const names = raw
-.map((item) =>
-typeof item === "string"
-? item
-: item?.name || item?.nom || item?.displayName || ""
-)
-.filter(Boolean);
-
-return uniq([
-currentUser.name,
-...names,
-]).map((name, index) => ({
-id: `agent_${index}`,
+return (pilotes || []).map((name, index) => ({
+id: `pilot_${index}`,
 name,
 }));
-}, [patient, currentUser.name]);
+}, []);
 
 const serviceDoctors = useMemo(() => {
-const raw =
-safeArray(patient?.serviceDoctors) ||
-safeArray(patient?.medecinsService) ||
-safeArray(patient?.doctors) ||
-[];
-const names = raw
-.map((item) =>
-typeof item === "string"
-? item
-: item?.name || item?.nom || item?.displayName || ""
-)
-.filter(Boolean);
-
-return uniq(names).map((name, index) => ({
+return (medecins || []).map((name, index) => ({
 id: `doctor_${index}`,
 name,
 }));
-}, [patient]);
+}, []);
+
+
 
   
 const initialCopilotState = useMemo(() => {
@@ -3423,17 +3395,20 @@ Voir la synthèse
 
 </div>
 
-      <div style={styles.shell}>
-
-        
-      <aside
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "260px 1fr",
+gap: 16,
+alignItems: "start",
+}}
+>
+<aside
 className="pv-sidebar"
 style={{
 position: "sticky",
-top: 84,
+top: 12,
 alignSelf: "start",
-height: "calc(100vh - 96px)",
-overflowY: "auto",
 border: "1px solid #dbe4f0",
 borderRadius: 22,
 background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
@@ -3449,53 +3424,54 @@ fontSize: 12,
 letterSpacing: ".08em",
 textTransform: "uppercase",
 color: "#64748b",
+fontWeight: 800,
 }}
 >
-Copilote de coordination
+Coordination
 </div>
 
 {MENU_ITEMS.map((item) => {
 const count = menuCounters[item.id] || 0;
+const isActive = state.activeSection === item.id;
 
 return (
 <button
 key={item.id}
 type="button"
 onClick={() => scrollToSection(`section-${item.id}`)}
-className={`pv-side-btn ${state.activeSection === item.id ? "is-active" : ""}`}
+className={`pv-side-btn ${isActive ? "is-active" : ""}`}
 style={{
 width: "100%",
 display: "flex",
 alignItems: "center",
 justifyContent: "space-between",
 borderRadius: 16,
-border: state.activeSection === item.id ? "1px solid #bfd3ff" : "1px solid #edf2f7",
-background: state.activeSection === item.id ? "#eef4ff" : "#ffffff",
-color: state.activeSection === item.id ? "#17376a" : "#0f172a",
+border: isActive ? "1px solid #bfd3ff" : "1px solid #edf2f7",
+background: isActive ? "#eef4ff" : "#ffffff",
+color: isActive ? "#17376a" : "#0f172a",
 fontWeight: 700,
 padding: "12px 14px",
 marginBottom: 8,
 cursor: "pointer",
 }}
 >
-<span className="pv-side-btn__label">{item.label}</span>
+<span>{item.label}</span>
 
 {count > 0 ? (
 <span
-className={`pv-side-btn__badge ${
-item.id === "activite"
-? "badge-amber"
-: item.id === "actions"
-? "badge-red"
-: item.id === "demandes"
-? "badge-amber"
-: "badge-blue"
-}`}
 style={{
+minWidth: 24,
+height: 24,
 borderRadius: 999,
-padding: "4px 8px",
-fontSize: 11,
+display: "inline-flex",
+alignItems: "center",
+justifyContent: "center",
+fontSize: 12,
 fontWeight: 800,
+padding: "0 8px",
+background: "#eff6ff",
+color: "#1d4ed8",
+border: "1px solid #bfdbfe",
 }}
 >
 {count}
@@ -3507,39 +3483,27 @@ fontWeight: 800,
 </aside>
 
 
-
-        <main style={styles.main}>
-
-   
+<main style={{ minWidth: 0 }}>
 {/* =========================
-
-          COPILOT TOP
-
-          ========================= */}
-
-          <section
-
-            id="section-copilot"
-
-            style={{
-
-              display: state.activeSection === "copilot" ? "grid" : "none",
-
-              ...styles.card,
-
-            }}
-
-          >
-
-          <div style={styles.sectionHeaderBlock}>
+COPILOT TOP
+========================= */}
+<section
+id="section-copilot"
+style={{
+...styles.card,
+scrollMarginTop: 100,
+display: state.activeSection === "copilot" ? "grid" : "none",
+}}
+>
+<div style={styles.sectionHeaderBlock}>
 <div>
 <div style={styles.cardTitle}>Vue globale</div>
-<div style={styles.smallNote}>Lecture rapide de la situation actuelle</div>
+<div style={styles.smallNote}>
+Lecture rapide de la situation actuelle
+</div>
 </div>
 
-<div style={styles.pathSentence}>
-{quickSummary.sentence}
-</div>
+<div style={styles.pathSentence}>{quickSummary.sentence}</div>
 
 <div style={styles.rowWrap}>
 <span style={tagStyle("blue")}>
@@ -3551,32 +3515,21 @@ Complexité {complexity.label}
 </div>
 </div>
 
-<div style={styles.careHeaderRow}>
-
-<div style={styles.careSelectCard}>
-<div style={styles.careSelectLabel}>Pilote du parcours</div>
-
+<div style={styles.copilotTopGrid}>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Pilote du parcours</label>
 <select
-value={state.coordination?.responsableActuel || currentUser.name || ""}
+value={state.coordination?.responsableActuel || ""}
 onChange={(e) =>
 persistCopilot((prev) => ({
 coordination: {
 ...(prev.coordination || {}),
 responsableActuel: e.target.value,
 },
-decisionLog: [
-buildAutoDecisionLogEntry(
-`Pilote du parcours : ${e.target.value}`,
-currentUser.name
-),
-...safeArray(prev.decisionLog),
-],
 }))
 }
-style={styles.careSelectInput}
+style={styles.selectSmall}
 >
-
-
 <option value="">Sélectionner</option>
 {serviceAgents.map((agent) => (
 <option key={agent.id} value={agent.name}>
@@ -3586,10 +3539,8 @@ style={styles.careSelectInput}
 </select>
 </div>
 
-
-
-<div style={styles.careSelectCard}>
-<div style={styles.careSelectLabel}>Médecin référent</div>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Médecin référent</label>
 <select
 value={state.coordination?.medecin || ""}
 onChange={(e) =>
@@ -3598,18 +3549,11 @@ coordination: {
 ...(prev.coordination || {}),
 medecin: e.target.value,
 },
-decisionLog: [
-buildAutoDecisionLogEntry(
-`Médecin référent : ${e.target.value}`,
-currentUser.name
-),
-...safeArray(prev.decisionLog),
-],
 }))
 }
-style={styles.careSelectInput}
+style={styles.selectSmall}
 >
-<option value="">Sélectionner</option>
+<option value="">Choisir un médecin</option>
 {serviceDoctors.map((doctor) => (
 <option key={doctor.id} value={doctor.name}>
 {doctor.name}
@@ -3618,33 +3562,34 @@ style={styles.careSelectInput}
 </select>
 </div>
 
-<div style={styles.careItem}>
-<span style={styles.careLabel}>Entrée</span>
-<span style={styles.careValue}>{formatDateShort(entryDate)}</span>
+<div style={styles.copilotMetaRow}>
+<div style={styles.infoMiniCard}>
+<div style={styles.infoLabel}>Séjour</div>
+<div style={styles.infoMiniValue}>J+{lengthOfStay}</div>
 </div>
 
-<div style={styles.careItem}>
-<span style={styles.careLabel}>Séjour</span>
-<span style={styles.careValue}>J+{lengthOfStay}</span>
+<div style={styles.infoMiniCard}>
+<div style={styles.infoLabel}>Entrée</div>
+<div style={styles.infoMiniValue}>{formatDateShort(entryDate)}</div>
 </div>
 
-<div style={styles.careItem}>
-<span style={styles.careLabel}>Jours évitables</span>
-<span style={styles.careValue}>
+<div style={styles.infoMiniCard}>
+<div style={styles.infoLabel}>Jours évitables</div>
+<div style={styles.infoMiniValue}>
 {avoidableDays > 0 ? `${avoidableDays} j` : "—"}
-</span>
+</div>
 </div>
 
-<div style={styles.careItem}>
-<span style={styles.careLabel}>Service</span>
-<span style={styles.careValue}>{patient.service || "—"}</span>
+<div style={styles.infoMiniCard}>
+<div style={styles.infoLabel}>Service</div>
+<div style={styles.infoMiniValue}>{patient.service || "—"}</div>
+</div>
 </div>
 </div>
 
 
 <div style={styles.grid2}>
 <div
-
 style={{
 ...styles.infoCard,
 ...styles.alertCard,
@@ -3664,13 +3609,11 @@ style={{
 <div style={{ ...styles.infoCard, ...styles.priorityCard }}>
 <div style={styles.cardSubTitle}>À faire maintenant</div>
 
-
-
-{recommendedNextAction?.sentence && (
+{recommendedNextAction?.sentence ? (
 <div style={styles.prioritySentence}>
 {recommendedNextAction.sentence}
 </div>
-)}
+) : null}
 
 {recommendedNextAction ? (
 <button
@@ -3694,7 +3637,6 @@ style={styles.priorityButton}
 <div style={styles.smallNote}>Aucune priorité immédiate.</div>
 )}
 </div>
-
 
 <div style={styles.infoCard}>
 <div style={styles.cardSubTitle}>À anticiper</div>
@@ -3730,99 +3672,98 @@ style={styles.anticipationButton}
 <div style={styles.infoCard}>
 <div style={styles.cardHeader}>
 <div style={styles.cardSubTitle}>Post-its</div>
-
-
 </div>
 
-
 {visiblePostits.length === 0 ? (
-  <div style={styles.smallNote}>Aucun post-it actif.</div>
+<div style={styles.smallNote}>Aucun post-it actif.</div>
 ) : (
-  visiblePostits.map((e) => (
-    <div
-      key={e.id}
-      style={{
-        ...styles.inlinePostit,
-        ...getPostitsStyleByType(e.type),
-      }}
-    >
-      <div style={styles.postitHeader}>
-        <strong>{e.type}</strong>
+visiblePostits.map((e) => (
+<div
+key={e.id}
+style={{
+...styles.inlinePostit,
+...getPostitsStyleByType(e.type),
+}}
+>
+<div style={styles.postitHeader}>
+<strong>{e.type}</strong>
 
-        <div style={styles.rowWrap}>
-          {!e.read ? <span style={styles.postitNotifDot} /> : null}
+<div style={styles.rowWrap}>
+{!e.read ? <span style={styles.postitNotifDot} /> : null}
 
-          <button
-            type="button"
-            style={styles.postitActionBtn}
-            onClick={() => togglePostitMinimized(e.id)}
-          >
-            {e.isMinimized ? "+" : "–"}
-          </button>
+<button
+type="button"
+style={styles.postitActionBtn}
+onClick={() => togglePostitMinimized(e.id)}
+>
+{e.isMinimized ? "+" : "–"}
+</button>
 
-          <button
-            type="button"
-            style={styles.postitActionBtn}
-            onClick={() => togglePostitOpen(e.id)}
-          >
-            ×
-          </button>
-        </div>
-      </div>
+<button
+type="button"
+style={styles.postitActionBtn}
+onClick={() => togglePostitOpen(e.id)}
+>
+×
+</button>
+</div>
+</div>
 
-      {!e.isMinimized ? (
-        <>
-          <div
-            style={styles.postitText}
-            onClick={() => markPostitAsRead(e.id)}
-          >
-            {e.text}
-          </div>
+{!e.isMinimized ? (
+<>
+<div
+style={styles.postitText}
+onClick={() => markPostitAsRead(e.id)}
+>
+{e.text}
+</div>
 
-          <div style={styles.postitMeta}>
-            {e.author}
-            {e.createdAt ? ` · ${formatRelativeTime(e.createdAt)}` : ""}
-          </div>
+<div style={styles.postitMeta}>
+{e.author}
+{e.createdAt ? ` · ${formatRelativeTime(e.createdAt)}` : ""}
+</div>
 
-          <div style={styles.rowWrap}>
-            <div style={styles.postitChip}>{e.status}</div>
+<div style={styles.rowWrap}>
+<div style={styles.postitChip}>{e.status}</div>
 
-            <button
-              type="button"
-              style={styles.secondaryBtn}
-              onClick={() => movePostitToStatus(e.id, "À traiter")}
-            >
-              À traiter
-            </button>
+<button
+type="button"
+style={styles.secondaryBtn}
+onClick={() => movePostitToStatus(e.id, "À traiter")}
+>
+À traiter
+</button>
 
-            <button
-              type="button"
-              style={styles.secondaryBtn}
-              onClick={() => movePostitToStatus(e.id, "En cours")}
-            >
-              En cours
-            </button>
+<button
+type="button"
+style={styles.secondaryBtn}
+onClick={() => movePostitToStatus(e.id, "En cours")}
+>
+En cours
+</button>
 
-            <button
-              type="button"
-              style={styles.secondaryBtn}
-              onClick={() => movePostitToStatus(e.id, "En attente de réponse")}
-            >
-              En attente
-            </button>
+<button
+type="button"
+style={styles.secondaryBtn}
+onClick={() =>
+movePostitToStatus(e.id, "En attente de réponse")
+}
+>
+En attente
+</button>
 
-            <button
-              type="button"
-              style={styles.secondaryBtn}
-              onClick={() => movePostitToStatus(e.id, "Clos")}
-            >
-              Clos
-            </button>
-          </div>
-        </>
-      ) : null}
-    </div>
-  ))
+<button
+type="button"
+style={styles.secondaryBtn}
+onClick={() => movePostitToStatus(e.id, "Clos")}
+>
+Clos
+</button>
+</div>
+</>
+) : null}
+</div>
+))
 )}
 </div>
 </div>
@@ -3843,7 +3784,15 @@ style={styles.anticipationButton}
 <div style={styles.copilotStatLabel}>Demandes en attente</div>
 <div style={styles.copilotStatValue}>
 {Object.values(state.resourceFollowUp || {}).filter((r) =>
-["draft", "sent", "waiting", "followup", "needs_clarification", "received", "programmed"].includes(r.status)
+[
+"draft",
+"sent",
+"waiting",
+"followup",
+"needs_clarification",
+"received",
+"programmed",
+].includes(r.status)
 ).length}
 </div>
 </div>
@@ -3864,71 +3813,69 @@ style={styles.anticipationButton}
 {!isEditingDecision ? (
 <div style={styles.infoCard}>
 <div style={styles.cardHeader}>
-  <div style={styles.cardSubTitle}>Décision de sortie</div>
-  <button
-    type="button"
-    style={styles.secondaryBtn}
-    onClick={() => setIsEditingDecision(true)}
-  >
-    Modifier
-  </button>
+<div style={styles.cardSubTitle}>Décision de sortie</div>
+<button
+type="button"
+style={styles.secondaryBtn}
+onClick={() => setIsEditingDecision(true)}
+>
+Modifier
+</button>
 </div>
-
 
 <div style={styles.decisionHero}>
-  <div style={styles.decisionHeroLabel}>Orientation retenue</div>
-  <div style={styles.decisionHeroValue}>
-    {state.currentSolutionOverride ||
-      state.selectedOrientation ||
-      patient?.copilotSummary?.currentSolution ||
-      patient?.dischargePlanning?.solutionLabel ||
-      patient?.solutionLabel ||
-      "Non définie"}
-  </div>
+<div style={styles.decisionHeroLabel}>Orientation retenue</div>
+<div style={styles.decisionHeroValue}>
+{state.currentSolutionOverride ||
+state.selectedOrientation ||
+patient?.copilotSummary?.currentSolution ||
+patient?.dischargePlanning?.solutionLabel ||
+patient?.solutionLabel ||
+"Non définie"}
+</div>
 </div>
 
+{orientationEngine?.primary ? (
+<div style={styles.copilotSuggestionBox}>
+<div style={styles.copilotSuggestionLabel}>
+Suggestion du Copilot
+</div>
 
-{/* 🔽 Suggestion Copilot */}
+<div style={styles.copilotSuggestionMain}>
+{orientationEngine.primary}
+</div>
 
-{orientationEngine?.primary && (
-  <div style={styles.copilotSuggestionBox}>
-    <div style={styles.copilotSuggestionLabel}>Suggestion du Copilot</div>
+{orientationEngine.reasons?.length > 0 ? (
+<div style={styles.rowWrap}>
+{orientationEngine.reasons.map((reason) => (
+<span
+key={reason}
+style={{
+display: "inline-block",
+background: "#eef2ff",
+color: "#3730a3",
+padding: "4px 10px",
+borderRadius: 999,
+fontSize: 11,
+fontWeight: 700,
+}}
+>
+{reason}
+</span>
+))}
+</div>
+) : null}
 
-    <div style={styles.copilotSuggestionMain}>
-      {orientationEngine.primary}
-    </div>
-
-    {orientationEngine.reasons?.length > 0 && (
-      <div style={styles.rowWrap}>
-        {orientationEngine.reasons.map((reason) => (
-          <span
-            key={reason}
-            style={{
-              display: "inline-block",
-              background: "#eef2ff",
-              color: "#3730a3",
-              padding: "4px 10px",
-              borderRadius: 999,
-              fontSize: 11,
-              fontWeight: 700,
-            }}
-          >
-            {reason}
-          </span>
-        ))}
-      </div>
-    )}
-
-    {(orientationEngine.alternative1 || orientationEngine.alternative2) && (
-      <div style={styles.copilotSuggestionAlt}>
-        Alternatives :{" "}
-        {[orientationEngine.alternative1, orientationEngine.alternative2]
-          .filter(Boolean)
-          .join(" · ")}
-      </div>
-    )}
-  </div>
-)}
+{orientationEngine.alternative1 || orientationEngine.alternative2 ? (
+<div style={styles.copilotSuggestionAlt}>
+Alternatives :{" "}
+{[orientationEngine.alternative1, orientationEngine.alternative2]
+.filter(Boolean)
+.join(" · ")}
+</div>
+) : null}
+</div>
+) : null}
 
 <div style={styles.decisionMetaCompactGrid}>
 <div style={styles.infoMiniCard}>
@@ -3971,10 +3918,7 @@ patient?.nextAction?.owner ||
 </div>
 </div>
 </div>
-
-
 </div>
-
 ) : (
 <div style={styles.infoCard}>
 <div style={styles.cardSubTitle}>Modifier la décision</div>
@@ -4007,7 +3951,9 @@ style={styles.inputSmall}
 <label style={styles.label}>Statut date cible</label>
 <select
 value={state.targetDateStatus}
-onChange={(e) => persistCopilot({ targetDateStatus: e.target.value })}
+onChange={(e) =>
+persistCopilot({ targetDateStatus: e.target.value })
+}
 style={styles.selectSmall}
 >
 {TARGET_STATUSES.map((status) => (
@@ -4056,10 +4002,10 @@ Annuler
 )}
 
 <div style={styles.infoCard}>
-  <div style={styles.cardHeader}>
-    <div style={styles.cardSubTitle}>Qualification</div>
-    <div style={styles.cardHeaderSpacer} />
-  </div>
+<div style={styles.cardHeader}>
+<div style={styles.cardSubTitle}>Qualification</div>
+<div style={styles.cardHeaderSpacer} />
+</div>
 
 <div style={styles.fieldBlock}>
 <label style={styles.label}>Mots-clés suggérés par le recueil</label>
@@ -4075,7 +4021,8 @@ Annuler
 {items.map((item) => {
 const active = activeKeywords.some(
 (kw) =>
-normalizeKeywordLabel(kw.label) === normalizeKeywordLabel(item.label)
+normalizeKeywordLabel(kw.label) ===
+normalizeKeywordLabel(item.label)
 );
 
 return (
@@ -4101,7 +4048,7 @@ style={{
 
 <div style={styles.fieldBlock}>
 <label style={styles.label}>Mots-clés actifs</label>
-<div style={{ marginTop: 4 }}></div>
+<div style={{ marginTop: 4 }} />
 
 {activeKeywords.length === 0 ? (
 <div style={styles.smallNote}>Aucun mot-clé actif.</div>
@@ -4116,7 +4063,10 @@ style={{
 key={item.id}
 type="button"
 onClick={() => removeActiveKeyword(item.label)}
-style={{ ...styles.keywordChip, ...styles.keywordChipActive }}
+style={{
+...styles.keywordChip,
+...styles.keywordChipActive,
+}}
 >
 {item.label}
 </button>
@@ -4200,159 +4150,206 @@ style={styles.keywordChip}
 </div>
 </div>
 </div>
-
 </section>
-
 
 {/* =========================
 ORIENTATION
 ========================= */}
 <section
-  id="section-orientation"
-  style={{
-    display: state.activeSection === "orientation" ? "grid" : "none",
-    ...styles.card,
-  }}
+id="section-orientation"
+style={{
+...styles.card,
+scrollMarginTop: 100,
+display: state.activeSection === "orientation" ? "grid" : "none",
+}}
 >
-  <div style={styles.cardHeader}>
-    <div style={styles.cardTitle}>Orientation</div>
-    {state.selectedOrientation ? (
-      <span style={tagStyle("blue")}>{state.selectedOrientation}</span>
-    ) : (
-      <span style={tagStyle("amber")}>À définir</span>
-    )}
-  </div>
+<div
+style={{
+border: "1px solid #e2e8f0",
+borderRadius: 12,
+padding: 16,
+background: "#f8fafc",
+marginBottom: 16,
+}}
+>
+<div style={{ marginBottom: 10, fontWeight: 600 }}>
+Décision rapide
+</div>
 
-  <div style={styles.sectionBanner}>
-    <div style={styles.cardSubTitle}>Choisir une orientation cible</div>
+<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+{["Validation", "À discuter", "Urgent"].map((opt) => {
+const isActive = state.decisionHeroValue === opt;
 
-    <div style={styles.orientationChipWrap}>
-      {[
-        "Retour domicile IDEL",
-        "HAD",
-        "EHPAD",
-        "USLD",
-        "SSR / SMR",
-        "HDJ",
-        "USP / Soins palliatifs",
-        "Aide à domicile",
-        "ASE / social",
-      ].map((item) => (
-        <button
-          ref={item === "HAD" ? orientationRef : null}
-          key={item}
-          type="button"
-          style={{
-            ...styles.orientationChip,
-            ...(state.selectedOrientation === item
-              ? styles.orientationChipActive
-              : {}),
-          }}
-          onClick={() => handleOrientationSelect(item)}
-        >
-          {item}
-        </button>
-      ))}
-    </div>
-  </div>
+return (
+<button
+key={opt}
+type="button"
+onClick={() =>
+persistCopilot({
+decisionHeroValue: opt,
+})
+}
+style={{
+padding: "6px 12px",
+borderRadius: 999,
+border: "1px solid #ccc",
+background: isActive
+? opt === "Urgent"
+? "#fee2e2"
+: opt === "À discuter"
+? "#fef9c3"
+: "#dbeafe"
+: "#fff",
+fontWeight: 600,
+cursor: "pointer",
+}}
+>
+{opt}
+</button>
+);
+})}
+</div>
+</div>
 
-  {state.selectedOrientation === "HDJ" ? (
-    <div style={styles.sectionBanner}>
-      <div style={styles.cardSubTitle}>Orientation HDJ retenue</div>
+<div style={styles.cardHeader}>
+<div style={styles.cardTitle}>Orientation</div>
+{state.selectedOrientation ? (
+<span style={tagStyle("blue")}>{state.selectedOrientation}</span>
+) : (
+<span style={tagStyle("amber")}>À définir</span>
+)}
+</div>
 
-      <div style={styles.smallNote}>
-        Construire un parcours HDJ sur mesure pour sécuriser une sortie plus
-        précoce et éviter une hospitalisation prolongée.
-      </div>
+<div style={styles.sectionBanner}>
+<div style={styles.cardSubTitle}>Choisir une orientation cible</div>
 
-      <div style={styles.rowWrap}>
-        <button
-          type="button"
-          style={styles.primaryBtn}
-          onClick={() => {
-            persistCopilot({
-              showHdjForm: true,
-              activeSection: "hdj",
-            });
+<div style={styles.orientationChipWrap}>
+{[
+"Retour domicile IDEL",
+"HAD",
+"EHPAD",
+"USLD",
+"SSR / SMR",
+"HDJ",
+"USP / Soins palliatifs",
+"Aide à domicile",
+"ASE / social",
+].map((item) => (
+<button
+ref={item === "HAD" ? orientationRef : null}
+key={item}
+type="button"
+style={{
+...styles.orientationChip,
+...(state.selectedOrientation === item
+? styles.orientationChipActive
+: {}),
+}}
+onClick={() => handleOrientationSelect(item)}
+>
+{item}
+</button>
+))}
+</div>
+</div>
 
-            setTimeout(() => {
-              const el = document.getElementById("section-hdj");
-              if (el) {
-                const y = el.getBoundingClientRect().top + window.scrollY - 92;
-                window.scrollTo({
-                  top: Math.max(y, 0),
-                  behavior: "smooth",
-                });
-              }
-            }, 0);
-          }}
-        >
-          Construire le parcours HDJ
-        </button>
-      </div>
-    </div>
-  ) : null}
+{state.selectedOrientation === "HDJ" ? (
+<div style={styles.sectionBanner}>
+<div style={styles.cardSubTitle}>Orientation HDJ retenue</div>
 
-  {state.selectedOrientation === "HAD" ? (
-    <div style={styles.infoCard}>
-      <div style={styles.cardSubTitle}>Critères HAD</div>
+<div style={styles.smallNote}>
+Construire un parcours HDJ sur mesure pour sécuriser une sortie plus
+précoce et éviter une hospitalisation prolongée.
+</div>
 
-      <div style={styles.keywordWrap}>
-        {HAD_CRITERIA.map((criterion) => {
-          const active = safeArray(state.hadEligibility?.checkedItems).includes(
-            criterion
-          );
+<div style={styles.rowWrap}>
+<button
+type="button"
+style={styles.primaryBtn}
+onClick={() => {
+persistCopilot({
+showHdjForm: true,
+activeSection: "hdj",
+});
 
-          return (
-            <button
-              key={criterion}
-              type="button"
-              onClick={() => {
-                const current = safeArray(state.hadEligibility?.checkedItems);
-                const nextChecked = active
-                  ? current.filter((item) => item !== criterion)
-                  : [...current, criterion];
+setTimeout(() => {
+const el = document.getElementById("section-hdj");
+if (el) {
+const y = el.getBoundingClientRect().top + window.scrollY - 92;
+window.scrollTo({
+top: Math.max(y, 0),
+behavior: "smooth",
+});
+}
+}, 0);
+}}
+>
+Construire le parcours HDJ
+</button>
+</div>
+</div>
+) : null}
 
-                persistCopilot({
-                  hadEligibility: {
-                    ...state.hadEligibility,
-                    checkedItems: nextChecked,
-                    eligible: nextChecked.length > 0,
-                  },
-                });
-              }}
-              style={{
-                ...styles.keywordChip,
-                ...(active ? styles.keywordChipActive : {}),
-              }}
-            >
-              {criterion}
-            </button>
-          );
-        })}
-      </div>
+{state.selectedOrientation === "HAD" ? (
+<div style={styles.infoCard}>
+<div style={styles.cardSubTitle}>Critères HAD</div>
 
-      <div style={styles.rowWrap}>
-        <span style={tagStyle(hadValidation?.tone || "red")}>
-          {hadValidation?.message || "Évaluation HAD en attente"}
-        </span>
+<div style={styles.keywordWrap}>
+{HAD_CRITERIA.map((criterion) => {
+const active = safeArray(state.hadEligibility?.checkedItems).includes(
+criterion
+);
 
-        <a
-          href="https://trajectoire.sante-ra.fr/Trajectoire/"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={styles.linkBtn}
-        >
-          Ouvrir ViaTrajectoire
-        </a>
-      </div>
-    </div>
-  ) : null}
+return (
+<button
+key={criterion}
+type="button"
+onClick={() => {
+const current = safeArray(state.hadEligibility?.checkedItems);
+const nextChecked = active
+? current.filter((item) => item !== criterion)
+: [...current, criterion];
 
-  {state.selectedOrientation ? (
-    <div style={styles.grid2}>
-      <div style={styles.infoCard}>
-        <div style={styles.cardSubTitle}>Décision retenue</div>
+persistCopilot({
+hadEligibility: {
+...state.hadEligibility,
+checkedItems: nextChecked,
+eligible: nextChecked.length > 0,
+},
+});
+}}
+style={{
+...styles.keywordChip,
+...(active ? styles.keywordChipActive : {}),
+}}
+>
+{criterion}
+</button>
+);
+})}
+</div>
+
+<div style={styles.rowWrap}>
+<span style={tagStyle(hadValidation?.tone || "red")}>
+{hadValidation?.message || "Évaluation HAD en attente"}
+</span>
+
+<a
+href="https://trajectoire.sante-ra.fr/Trajectoire/"
+target="_blank"
+rel="noopener noreferrer"
+style={styles.linkBtn}
+>
+Ouvrir ViaTrajectoire
+</a>
+</div>
+</div>
+) : null}
+
+{state.selectedOrientation ? (
+<div style={styles.grid2}>
+<div style={styles.infoCard}>
+<div style={styles.cardSubTitle}>Décision retenue</div>
 
 <div style={styles.infoCard}>
 <div style={styles.cardSubTitle}>Dossiers administratifs</div>
@@ -4440,127 +4437,130 @@ style={{
 </div>
 </div>
 
+<div style={styles.orientationMain}>{state.selectedOrientation}</div>
 
-
-        <div style={styles.orientationMain}>{state.selectedOrientation}</div>
-
-        <div style={styles.fieldBlock}>
-          <label style={styles.label}>Plan B</label>
-          
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Plan B</label>
 <div style={styles.keywordWrap}>
-{getPlanBOptions(state.selectedOrientation).map((option) => {
-const active = state.orientationPlanB === option;
+{getPlanBOptions(state.selectedOrientation).map((opt) => {
+const active = state.orientationPlanB === opt;
 
 return (
 <button
-key={option}
+key={opt}
 type="button"
-onClick={() => persistCopilot({ orientationPlanB: option })}
+onClick={() =>
+persistCopilot({
+orientationPlanB: active ? "" : opt,
+})
+}
 style={{
 ...styles.keywordChip,
 ...(active ? styles.keywordChipActive : {}),
 }}
 >
-{option}
+{opt}
 </button>
 );
 })}
 </div>
+</div>
 
-        </div>
-
-        <div style={styles.fieldBlock}>
-          <label style={styles.label}>Plan C</label>
-          
-
-
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Plan C</label>
 
 <div style={styles.keywordWrap}>
-{getPlanCOptions(state.selectedOrientation).map((option) => {
-const active = state.orientationPlanC === option;
+{getPlanCOptions(state.selectedOrientation)
+.filter((opt) => opt !== state.orientationPlanB)
+.map((opt) => {
+const active = state.orientationPlanC === opt;
 
 return (
 <button
-key={option}
+key={opt}
 type="button"
-onClick={() => persistCopilot({ orientationPlanC: option })}
+onClick={() =>
+persistCopilot({
+orientationPlanC: active ? "" : opt,
+})
+}
 style={{
 ...styles.keywordChip,
 ...(active ? styles.keywordChipActive : {}),
 }}
 >
-{option}
+{opt}
 </button>
 );
 })}
 </div>
+</div>
 
 
-        </div>
+<div style={styles.rowWrap}>
+<button
+type="button"
+style={styles.primaryBtn}
+onClick={() => scrollToSection("section-ressources")}
+>
+Voir les ressources
+</button>
 
-        <div style={styles.rowWrap}>
-          <button
-            type="button"
-            style={styles.primaryBtn}
-            onClick={() => scrollToSection("section-ressources")}
-          >
-            Voir les ressources
-          </button>
+<button
+type="button"
+style={styles.secondaryBtn}
+onClick={() => scrollToSection("section-demandes")}
+>
+Gérer les demandes
+</button>
+</div>
+</div>
 
-          <button
-            type="button"
-            style={styles.secondaryBtn}
-            onClick={() => scrollToSection("section-demandes")}
-          >
-            Gérer les demandes
-          </button>
-        </div>
-      </div>
+<div style={styles.infoCard}>
+<div style={styles.cardSubTitle}>Ressources suggérées</div>
 
-      <div style={styles.infoCard}>
-        <div style={styles.cardSubTitle}>Ressources suggérées</div>
+{state.selectedOrientation ? (
+<div style={styles.orientationPriorityBox}>
+{getOrientationPriority(state.selectedOrientation)}
+</div>
+) : null}
 
-        {state.selectedOrientation && (
-  <div style={styles.orientationPriorityBox}>
-    {getOrientationPriority(state.selectedOrientation)}
-  </div>
-)}
+{orientationPreviewResources.length === 0 &&
+!["EHPAD", "SSR / SMR", "HAD"].includes(state.selectedOrientation) ? (
+<div style={styles.smallNote}>
+Aucune ressource suggérée pour cette orientation.
+</div>
+) : (
+<div style={styles.stack}>
+{orientationPreviewResources.map((r, index) => {
+const uiStatus = getResourceUiStatus(r.id);
 
-        {orientationPreviewResources.length === 0 &&
-        !["EHPAD", "SSR / SMR", "HAD"].includes(state.selectedOrientation) ? (
-          <div style={styles.smallNote}>
-            Aucune ressource suggérée pour cette orientation.
-          </div>
-        ) : (
-          <div style={styles.stack}>
-  
-             {orientationPreviewResources.map((r, index) => {
-  const uiStatus = getResourceUiStatus(r.id);
+return (
+<div
+key={r.id}
+style={{
+...styles.previewRow,
+...(index === 0 ? styles.previewRowHighlight : {}),
+}}
+>
+<div>
+<div style={styles.previewTopRow}>
+<div style={styles.previewTitle}>{r.name}</div>
+<span style={tagStyle(uiStatus.tone)}>
+{uiStatus.label}
+</span>
+</div>
 
-  return (
-    <div
-      key={r.id}
-      style={{
-        ...styles.previewRow,
-        ...(index === 0 ? styles.previewRowHighlight : {}),
-      }}
-    >
-      <div>
-        <div style={styles.previewTopRow}>
-          <div style={styles.previewTitle}>{r.name}</div>
-          <span style={tagStyle(uiStatus.tone)}>{uiStatus.label}</span>
-        </div>
+<div style={styles.smallNote}>
+{r.family} · {r.subType}
+</div>
+</div>
 
-        <div style={styles.smallNote}>
-          {r.family} · {r.subType}
-        </div>
-      </div>
-
-      <div style={styles.rowWrap}>
-        <button
-          type="button"
-          style={styles.secondaryBtn}
-          onClick={() =>
+<div style={styles.rowWrap}>
+<button
+type="button"
+style={styles.secondaryBtn}
+onClick={() =>
 updateResource(r.id, {
 ...(state.resourceFollowUp?.[r.id] || {}),
 name: r.name,
@@ -4570,135 +4570,134 @@ initiatedAt: new Date().toISOString(),
 lastReminderAt: "",
 })
 }
-        >
-          Initier
-        </button>
+>
+Initier
+</button>
 
-        {r.formLink ? (
-          <button
-            type="button"
-            style={styles.secondaryBtn}
-            onClick={() => openExternal(r.formLink)}
-          >
-            Ouvrir
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
+{r.formLink ? (
+<button
+type="button"
+style={styles.secondaryBtn}
+onClick={() => openExternal(r.formLink)}
+>
+Ouvrir
+</button>
+) : null}
+</div>
+</div>
+);
 })}
 
-            {state.selectedOrientation === "EHPAD" && (
-              <div style={styles.previewRow}>
-                <div>
-                  <div style={styles.previewTitle}>ViaTrajectoire</div>
-                  <div style={styles.smallNote}>
-                    Recherche de places EHPAD et orientation grand âge.
-                  </div>
-                </div>
+{state.selectedOrientation === "EHPAD" ? (
+<div style={styles.previewRow}>
+<div>
+<div style={styles.previewTitle}>ViaTrajectoire</div>
+<div style={styles.smallNote}>
+Recherche de places EHPAD et orientation grand âge.
+</div>
+</div>
 
-                <div style={styles.rowWrap}>
-                  <a
-                    href="https://trajectoire.sante-ra.fr/Trajectoire/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.linkBtn}
-                  >
-                    Ouvrir
-                  </a>
-                </div>
-              </div>
-            )}
+<div style={styles.rowWrap}>
+<a
+href="https://trajectoire.sante-ra.fr/Trajectoire/"
+target="_blank"
+rel="noopener noreferrer"
+style={styles.linkBtn}
+>
+Ouvrir
+</a>
+</div>
+</div>
+) : null}
 
-            {state.selectedOrientation === "SSR / SMR" && (
-              <div style={styles.previewRow}>
-                <div>
-                  <div style={styles.previewTitle}>ViaTrajectoire</div>
-                  <div style={styles.smallNote}>
-                    Recherche de places SSR / SMR et organisation de
-                    rééducation.
-                  </div>
-                </div>
+{state.selectedOrientation === "SSR / SMR" ? (
+<div style={styles.previewRow}>
+<div>
+<div style={styles.previewTitle}>ViaTrajectoire</div>
+<div style={styles.smallNote}>
+Recherche de places SSR / SMR et organisation de rééducation.
+</div>
+</div>
 
-                <div style={styles.rowWrap}>
-                  <a
-                    href="https://trajectoire.sante-ra.fr/Trajectoire/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.linkBtn}
-                  >
-                    Ouvrir
-                  </a>
-                </div>
-              </div>
-            )}
+<div style={styles.rowWrap}>
+<a
+href="https://trajectoire.sante-ra.fr/Trajectoire/"
+target="_blank"
+rel="noopener noreferrer"
+style={styles.linkBtn}
+>
+Ouvrir
+</a>
+</div>
+</div>
+) : null}
 
-            {state.selectedOrientation === "HAD" && (
-              <div style={styles.previewRow}>
-                <div>
-                  <div style={styles.previewTitle}>ViaTrajectoire</div>
-                  <div style={styles.smallNote}>
-                    Accès HAD via ViaTrajectoire en complément des critères
-                    d’éligibilité.
-                  </div>
-                </div>
+{state.selectedOrientation === "HAD" ? (
+<div style={styles.previewRow}>
+<div>
+<div style={styles.previewTitle}>ViaTrajectoire</div>
+<div style={styles.smallNote}>
+Accès HAD via ViaTrajectoire en complément des critères
+d’éligibilité.
+</div>
+</div>
 
-                <div style={styles.rowWrap}>
-                  <a
-                    href="https://trajectoire.sante-ra.fr/Trajectoire/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.linkBtn}
-                  >
-                    Ouvrir
-                  </a>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+<div style={styles.rowWrap}>
+<a
+href="https://trajectoire.sante-ra.fr/Trajectoire/"
+target="_blank"
+rel="noopener noreferrer"
+style={styles.linkBtn}
+>
+Ouvrir
+</a>
+</div>
+</div>
+) : null}
+</div>
+)}
 
-        <div style={styles.rowWrap}>
-          <button
-            type="button"
-            style={styles.secondaryBtn}
-            onClick={() => scrollToSection("section-ressources")}
-          >
-            Voir plus
-          </button>
-        </div>
-      </div>
-    </div>
-  ) : (
-    <div style={styles.smallNote}>
-      Sélectionne d’abord une orientation pour afficher les ressources utiles.
-    </div>
-  )}
+<div style={styles.rowWrap}>
+<button
+type="button"
+style={styles.secondaryBtn}
+onClick={() => scrollToSection("section-ressources")}
+>
+Voir plus
+</button>
+</div>
+</div>
+</div>
+) : (
+<div style={styles.smallNote}>
+Sélectionne d’abord une orientation pour afficher les ressources utiles.
+</div>
+)}
 
-  {state.selectedOrientation === "USP / Soins palliatifs" ? (
-    <div style={styles.sectionBanner}>
-      <div style={styles.cardSubTitle}>Accès USP</div>
-      <div style={styles.rowWrap}>
-        <button
-          type="button"
-          style={styles.primaryBtn}
-          onClick={() => openExternal(FORM_LINKS.usp)}
-        >
-          Ouvrir dossier USP
-        </button>
-      </div>
-    </div>
-  ) : null}
+{state.selectedOrientation === "USP / Soins palliatifs" ? (
+<div style={styles.sectionBanner}>
+<div style={styles.cardSubTitle}>Accès USP</div>
+<div style={styles.rowWrap}>
+<button
+type="button"
+style={styles.primaryBtn}
+onClick={() => openExternal(FORM_LINKS.usp)}
+>
+Ouvrir dossier USP
+</button>
+</div>
+</div>
+) : null}
 </section>
-  
 {/* =========================
 RESSOURCES
 ========================= */}
 <section
 id="section-ressources"
 style={{
-display: state.activeSection === "ressources" ? "grid" : "none",
 ...styles.card,
+scrollMarginTop: 100,
+display: state.activeSection === "ressources" ? "grid" : "none",
 }}
 >
 <div style={styles.cardHeader}>
@@ -4719,21 +4718,18 @@ style={styles.input}
 />
 
 {state.resourceSearch ? (
-<div style={styles.smallNote}>Recherche actuelle : {state.resourceSearch}</div>
+<div style={styles.smallNote}>
+Recherche actuelle : {state.resourceSearch}
+</div>
 ) : null}
 
-<div
-style={{
-...styles.stack,
-}}
->
+<div style={styles.stack}>
 {resourcesToShow.map((r) => {
 const demand = state.resourceFollowUp?.[r.id];
 const followMeta = getFollowMeta(demand);
 const availability = getAvailabilityBadge(r);
 
 return (
-
 <div key={r.id} style={styles.resourceCard}>
 <div style={styles.exchangeHead}>
 <div>
@@ -4744,13 +4740,18 @@ return (
 </div>
 
 <div style={styles.rowWrap}>
-<span style={tagStyle(followMeta.tone)}>{followMeta.label}</span>
-<span style={tagStyle(availability.tone)}>{availability.label}</span>
+<span style={tagStyle(followMeta.tone)}>
+{followMeta.label}
+</span>
+<span style={tagStyle(availability.tone)}>
+{availability.label}
+</span>
 </div>
 </div>
 
 <div style={styles.smallNote}>
-{r.contactPerson || "Contact non renseigné"} · {r.phone || "Téléphone non renseigné"}
+{r.contactPerson || "Contact non renseigné"} ·{" "}
+{r.phone || "Téléphone non renseigné"}
 {r.email ? ` · ${r.email}` : ""}
 </div>
 
@@ -4802,451 +4803,443 @@ style={styles.secondaryBtn}
 </div>
 </section>
 
-
-
-
 {/* =========================
 HDJ
-==============================*/}
+========================= */}
 <section
-  id="section-hdj"
-  style={{
-    display:
-      state.activeSection === "hdj" || state.selectedOrientation === "HDJ"
-        ? "grid"
-        : "none",
-    ...styles.card,
-  }}
+id="section-hdj"
+style={{
+...styles.card,
+scrollMarginTop: 100,
+display: state.activeSection === "hdj" ? "grid" : "none",
+}}
 >
-  <div style={styles.cardHeader}>
-    <div style={styles.cardTitle}>Parcours HDJ</div>
-    <div style={styles.rowWrap}>
-      <span style={tagStyle("blue")}>Orientation HDJ</span>
-      <span
-        style={tagStyle(
-          state.hdjStatus === "programmed"
+<div style={styles.cardHeader}>
+<div style={styles.cardTitle}>Parcours HDJ</div>
+<div style={styles.rowWrap}>
+<span style={tagStyle("blue")}>Orientation HDJ</span>
+<span
+style={tagStyle(
+state.hdjStatus === "programmed"
 ? "green"
 : state.hdjStatus === "received"
 ? "blue"
 : state.hdjStatus === "validated"
 ? "green"
 : "amber"
-        )}
-      >
-        {state.hdjStatus || "draft"}
-      </span>
-    </div>
-  </div>
+)}
+>
+{state.hdjStatus || "draft"}
+</span>
+</div>
+</div>
 
-  <div style={styles.sectionBanner}>
-    <div style={styles.cardSubTitle}>Construire un parcours HDJ sur mesure</div>
-    <div style={styles.smallNote}>
-      Définir les objectifs, les actes, la fréquence, la date souhaitée et
-      préparer un support propre pour le secrétariat.
-    </div>
-  </div>
+<div style={styles.sectionBanner}>
+<div style={styles.cardSubTitle}>Construire un parcours HDJ sur mesure</div>
+<div style={styles.smallNote}>
+Définir les objectifs, les actes, la fréquence, la date souhaitée et
+préparer un support propre pour le secrétariat.
+</div>
+</div>
 
-  <div style={styles.rowWrap}>
-    <button
-      type="button"
-      onClick={() =>
-        persistCopilot({
-          showHdjForm: !state.showHdjForm,
-          activeSection: "hdj",
-        })
-      }
-      style={styles.secondaryBtn}
-    >
-      {state.showHdjForm
-        ? "Masquer le formulaire HDJ"
-        : "Ouvrir le formulaire HDJ"}
-    </button>
-  </div>
+<div style={styles.rowWrap}>
+<button
+type="button"
+onClick={() =>
+persistCopilot({
+showHdjForm: !state.showHdjForm,
+activeSection: "hdj",
+})
+}
+style={styles.secondaryBtn}
+>
+{state.showHdjForm
+? "Masquer le formulaire HDJ"
+: "Ouvrir le formulaire HDJ"}
+</button>
+</div>
 
-  {similarHdj.length > 0 && (
-    <div style={styles.infoCard}>
-      <div style={styles.cardSubTitle}>Modèles HDJ suggérés</div>
+{similarHdj.length > 0 ? (
+<div style={styles.infoCard}>
+<div style={styles.cardSubTitle}>Modèles HDJ suggérés</div>
 
-      <div style={styles.stack}>
-        {similarHdj.slice(0, 3).map((model) => (
-          <button
-            key={model.id}
-            type="button"
-            style={{ ...styles.formRow, cursor: "pointer" }}
-            onClick={() => handleApplyHdjModel(model)}
-          >
-            <div>
-              <div style={{ fontWeight: 800 }}>
-                {model.title || model.label}
-              </div>
-              <div style={styles.smallNote}>
-                {model.commonKeywords?.length > 0
-                  ? `Mots-clés communs : ${model.commonKeywords.join(", ")}`
-                  : "Modèle HDJ disponible"}
-              </div>
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  )}
+<div style={styles.stack}>
+{similarHdj.slice(0, 3).map((model) => (
+<button
+key={model.id}
+type="button"
+style={{ ...styles.formRow, cursor: "pointer" }}
+onClick={() => handleApplyHdjModel(model)}
+>
+<div>
+<div style={{ fontWeight: 800 }}>
+{model.title || model.label}
+</div>
+<div style={styles.smallNote}>
+{model.commonKeywords?.length > 0
+? `Mots-clés communs : ${model.commonKeywords.join(", ")}`
+: "Modèle HDJ disponible"}
+</div>
+</div>
+</button>
+))}
+</div>
+</div>
+) : null}
 
-  {state.showHdjForm ? (
-    <div style={styles.infoCard}>
-      <div style={styles.hdjFormHeader}>
-        <div>
-          <div style={styles.cardSubTitle}>Construire un HDJ</div>
-          <div style={styles.smallNote}>
-            Définir le parcours, la fréquence, les actes et la date souhaitée.
-          </div>
-        </div>
+{state.showHdjForm ? (
+<div style={styles.infoCard}>
+<div style={styles.hdjFormHeader}>
+<div>
+<div style={styles.cardSubTitle}>Construire un HDJ</div>
+<div style={styles.smallNote}>
+Définir le parcours, la fréquence, les actes et la date souhaitée.
+</div>
+</div>
 
-        <span style={tagStyle("blue")}>
-          {(state.hdjForm?.acts || []).length} acte(s) retenu(s)
-        </span>
-      </div>
+<span style={tagStyle("blue")}>
+{(state.hdjForm?.acts || []).length} acte(s) retenu(s)
+</span>
+</div>
 
-      <div style={styles.hdjHero}>
-        <div style={styles.hdjHeroMain}>
-          <div style={styles.hdjHeroTitle}>
-            {state.hdjForm?.title || "HDJ à définir"}
-          </div>
+<div style={styles.hdjHero}>
+<div style={styles.hdjHeroMain}>
+<div style={styles.hdjHeroTitle}>
+{state.hdjForm?.title || "HDJ à définir"}
+</div>
 
-          <div style={styles.hdjHeroMeta}>
-            {state.hdjForm?.actor || "Acteur non défini"} ·{" "}
-            {state.hdjForm?.frequency || "Fréquence"} ·{" "}
-            {state.hdjForm?.duration || "Durée"}
-          </div>
-        </div>
+<div style={styles.hdjHeroMeta}>
+{state.hdjForm?.actor || "Acteur non défini"} ·{" "}
+{state.hdjForm?.frequency || "Fréquence"} ·{" "}
+{state.hdjForm?.duration || "Durée"}
+</div>
+</div>
 
-        <div style={styles.hdjHeroBadge}>
-          {(state.hdjForm?.acts || []).length} acte(s)
-        </div>
-      </div>
+<div style={styles.hdjHeroBadge}>
+{(state.hdjForm?.acts || []).length} acte(s)
+</div>
+</div>
 
-      <div style={styles.hdjSectionBox}>
-        <div>
-          <div style={styles.hdjSectionTitle}>Paramètres du parcours</div>
-          <div style={styles.smallNote}>
-            Renseigner les informations de cadrage du HDJ.
-          </div>
-        </div>
+<div style={styles.hdjSectionBox}>
+<div>
+<div style={styles.hdjSectionTitle}>Paramètres du parcours</div>
+<div style={styles.smallNote}>
+Renseigner les informations de cadrage du HDJ.
+</div>
+</div>
 
-        <div style={styles.hdjFieldsGrid}>
-          <div style={styles.fieldBlock}>
-            <label style={styles.label}>Titre</label>
-            <input
-              value={state.hdjForm?.title || ""}
-              onChange={(e) => updateHdjForm({ title: e.target.value })}
-              style={styles.inputSmall}
-              placeholder="Ex : HDJ gériatrique – autonomie"
-            />
-          </div>
+<div style={styles.hdjFieldsGrid}>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Titre</label>
+<input
+value={state.hdjForm?.title || ""}
+onChange={(e) => updateHdjForm({ title: e.target.value })}
+style={styles.inputSmall}
+placeholder="Ex : HDJ gériatrique – autonomie"
+/>
+</div>
 
-          <div style={styles.fieldBlock}>
-            <label style={styles.label}>Acteur porteur</label>
-            <input
-              value={state.hdjForm?.actor || ""}
-              onChange={(e) => updateHdjForm({ actor: e.target.value })}
-              style={styles.inputSmall}
-              placeholder="Ex : Gériatre"
-            />
-          </div>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Acteur porteur</label>
+<input
+value={state.hdjForm?.actor || ""}
+onChange={(e) => updateHdjForm({ actor: e.target.value })}
+style={styles.inputSmall}
+placeholder="Ex : Gériatre"
+/>
+</div>
 
-          <div style={styles.fieldBlock}>
-            <label style={styles.label}>Date souhaitée</label>
-            <input
-              type="date"
-              value={state.hdjForm?.requestedDate || ""}
-              onChange={(e) =>
-                updateHdjForm({ requestedDate: e.target.value })
-              }
-              style={styles.inputSmall}
-            />
-          </div>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Date souhaitée</label>
+<input
+type="date"
+value={state.hdjForm?.requestedDate || ""}
+onChange={(e) =>
+updateHdjForm({ requestedDate: e.target.value })
+}
+style={styles.inputSmall}
+/>
+</div>
 
-          <div style={styles.fieldBlock}>
-            <label style={styles.label}>Récurrence</label>
-            <select
-              value={state.hdjForm?.recurrence || "ponctuel"}
-              onChange={(e) => updateHdjForm({ recurrence: e.target.value })}
-              style={styles.selectSmall}
-            >
-              <option value="ponctuel">Ponctuel</option>
-              <option value="recurrent">Récurrent</option>
-            </select>
-          </div>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Récurrence</label>
+<select
+value={state.hdjForm?.recurrence || "ponctuel"}
+onChange={(e) => updateHdjForm({ recurrence: e.target.value })}
+style={styles.selectSmall}
+>
+<option value="ponctuel">Ponctuel</option>
+<option value="recurrent">Récurrent</option>
+</select>
+</div>
 
-          <div style={styles.fieldBlock}>
-            <label style={styles.label}>Fréquence</label>
-            <select
-              value={state.hdjForm?.frequency || ""}
-              onChange={(e) => updateHdjForm({ frequency: e.target.value })}
-              style={styles.selectSmall}
-            >
-              <option value="">Choisir</option>
-              {HDJ_FREQUENCY_OPTIONS.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-          </div>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Fréquence</label>
+<select
+value={state.hdjForm?.frequency || ""}
+onChange={(e) => updateHdjForm({ frequency: e.target.value })}
+style={styles.selectSmall}
+>
+<option value="">Choisir</option>
+{HDJ_FREQUENCY_OPTIONS.map((f) => (
+<option key={f} value={f}>
+{f}
+</option>
+))}
+</select>
+</div>
 
-          <div style={styles.fieldBlock}>
-            <label style={styles.label}>Durée</label>
-            <select
-              value={state.hdjForm?.duration || ""}
-              onChange={(e) => updateHdjForm({ duration: e.target.value })}
-              style={styles.selectSmall}
-            >
-              <option value="">Choisir</option>
-              {HDJ_DURATION_OPTIONS.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </div>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Durée</label>
+<select
+value={state.hdjForm?.duration || ""}
+onChange={(e) => updateHdjForm({ duration: e.target.value })}
+style={styles.selectSmall}
+>
+<option value="">Choisir</option>
+{HDJ_DURATION_OPTIONS.map((d) => (
+<option key={d} value={d}>
+{d}
+</option>
+))}
+</select>
+</div>
 
-          {state.hdjForm?.recurrence === "ponctuel" ? (
-            <div style={styles.fieldBlock}>
-              <label style={styles.label}>Nombre de séances</label>
-              <input
-                type="number"
-                min="1"
-                value={state.hdjForm?.customSessions || 1}
-                onChange={(e) =>
-                  updateHdjForm({
-                    customSessions: Number(e.target.value || 1),
-                  })
-                }
-                style={styles.inputSmall}
-              />
-            </div>
-          ) : null}
+{state.hdjForm?.recurrence === "ponctuel" ? (
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Nombre de séances</label>
+<input
+type="number"
+min="1"
+value={state.hdjForm?.customSessions || 1}
+onChange={(e) =>
+updateHdjForm({
+customSessions: Number(e.target.value || 1),
+})
+}
+style={styles.inputSmall}
+/>
+</div>
+) : null}
 
-          {state.hdjForm?.frequency === "Personnalisé" ? (
-            <div style={styles.fieldBlock}>
-              <label style={styles.label}>Fréquence personnalisée</label>
-              <input
-                value={state.hdjForm?.frequencyCustom || ""}
-                onChange={(e) =>
-                  updateHdjForm({ frequencyCustom: e.target.value })
-                }
-                style={styles.inputSmall}
-                placeholder="Ex : 4 séances sur 2 semaines"
-              />
-            </div>
-          ) : null}
+{state.hdjForm?.frequency === "Personnalisé" ? (
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Fréquence personnalisée</label>
+<input
+value={state.hdjForm?.frequencyCustom || ""}
+onChange={(e) =>
+updateHdjForm({ frequencyCustom: e.target.value })
+}
+style={styles.inputSmall}
+placeholder="Ex : 4 séances sur 2 semaines"
+/>
+</div>
+) : null}
 
-          {state.hdjForm?.duration === "Personnalisé" ? (
-            <div style={styles.fieldBlock}>
-              <label style={styles.label}>Durée personnalisée</label>
-              <input
-                value={state.hdjForm?.durationCustom || ""}
-                onChange={(e) =>
-                  updateHdjForm({ durationCustom: e.target.value })
-                }
-                style={styles.inputSmall}
-                placeholder="Ex : 10 séances"
-              />
-            </div>
-          ) : null}
-        </div>
+{state.hdjForm?.duration === "Personnalisé" ? (
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Durée personnalisée</label>
+<input
+value={state.hdjForm?.durationCustom || ""}
+onChange={(e) =>
+updateHdjForm({ durationCustom: e.target.value })
+}
+style={styles.inputSmall}
+placeholder="Ex : 10 séances"
+/>
+</div>
+) : null}
+</div>
 
-        {state.hdjForm?.recurrence === "recurrent" ? (
-          <div style={styles.fieldBlock}>
-            <label style={styles.label}>Jours</label>
-            <div style={styles.keywordWrap}>
-              {DAYS.map((day) => {
-                const active = (state.hdjForm?.days || []).includes(day);
-                return (
-                  <button
-                    key={day}
-                    type="button"
-                    onClick={() => {
-                      const nextDays = active
-                        ? (state.hdjForm?.days || []).filter((d) => d !== day)
-                        : [...(state.hdjForm?.days || []), day];
-                      updateHdjForm({ days: nextDays });
-                    }}
-                    style={{
-                      ...styles.keywordChip,
-                      ...(active ? styles.keywordChipActive : {}),
-                    }}
-                  >
-                    {day}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
+{state.hdjForm?.recurrence === "recurrent" ? (
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Jours</label>
+<div style={styles.keywordWrap}>
+{DAYS.map((day) => {
+const active = (state.hdjForm?.days || []).includes(day);
+return (
+<button
+key={day}
+type="button"
+onClick={() => {
+const nextDays = active
+? (state.hdjForm?.days || []).filter((d) => d !== day)
+: [...(state.hdjForm?.days || []), day];
+updateHdjForm({ days: nextDays });
+}}
+style={{
+...styles.keywordChip,
+...(active ? styles.keywordChipActive : {}),
+}}
+>
+{day}
+</button>
+);
+})}
+</div>
+</div>
+) : null}
 
-        <div style={styles.fieldBlock}>
-          <label style={styles.label}>Objectif / contexte</label>
-          <textarea
-            value={state.hdjForm?.objective || ""}
-            onChange={(e) => updateHdjForm({ objective: e.target.value })}
-            style={styles.hdjTextarea}
-            placeholder="Préciser l’objectif du parcours HDJ"
-          />
-        </div>
-      </div>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Objectif / contexte</label>
+<textarea
+value={state.hdjForm?.objective || ""}
+onChange={(e) => updateHdjForm({ objective: e.target.value })}
+style={styles.hdjTextarea}
+placeholder="Préciser l’objectif du parcours HDJ"
+/>
+</div>
+</div>
 
-      <div style={styles.hdjSectionBox}>
-        <div style={styles.hdjSectionTitle}>Actes proposés</div>
+<div style={styles.hdjSectionBox}>
+<div style={styles.hdjSectionTitle}>Actes proposés</div>
 
-        <div style={styles.hdjActsGrid}>
-          {Object.entries(HDJ_ACTS).map(([group, acts]) => (
-            <div key={group} style={styles.hdjActsCategoryCard}>
-              <div style={styles.hdjActsGroupTitle}>{group}</div>
+<div style={styles.hdjActsGrid}>
+{Object.entries(HDJ_ACTS).map(([group, acts]) => (
+<div key={group} style={styles.hdjActsCategoryCard}>
+<div style={styles.hdjActsGroupTitle}>{group}</div>
 
-              <div style={styles.keywordWrap}>
-                {acts.map((act) => {
-                  const active = (state.hdjForm?.acts || []).includes(act);
+<div style={styles.keywordWrap}>
+{acts.map((act) => {
+const active = (state.hdjForm?.acts || []).includes(act);
 
-                  return (
-                    <button
-                      key={act}
-                      type="button"
-                      onClick={() => {
-                        const nextActs = active
-                          ? (state.hdjForm?.acts || []).filter(
-                              (a) => a !== act
-                            )
-                          : [...(state.hdjForm?.acts || []), act];
+return (
+<button
+key={act}
+type="button"
+onClick={() => {
+const nextActs = active
+? (state.hdjForm?.acts || []).filter((a) => a !== act)
+: [...(state.hdjForm?.acts || []), act];
 
-                        updateHdjForm({ acts: nextActs });
-                      }}
-                      style={{
-                        ...styles.hdjActChip,
-                        ...(active ? styles.hdjActChipActive : {}),
-                      }}
-                    >
-                      {act}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
+updateHdjForm({ acts: nextActs });
+}}
+style={{
+...styles.hdjActChip,
+...(active ? styles.hdjActChipActive : {}),
+}}
+>
+{act}
+</button>
+);
+})}
+</div>
+</div>
+))}
+</div>
 
-        <div style={styles.hdjSelectedActsBox}>
-          <div style={styles.hdjActsGroupTitle}>Actes retenus</div>
+<div style={styles.hdjSelectedActsBox}>
+<div style={styles.hdjActsGroupTitle}>Actes retenus</div>
 
-          <div style={styles.keywordWrap}>
-            {(state.hdjForm?.acts || []).length === 0 ? (
-              <div style={{ color: "#64748b" }}>Aucun acte sélectionné</div>
-            ) : (
-              state.hdjForm.acts.map((act) => (
-                <button
-                  key={act}
-                  type="button"
-                  onClick={() => removeHdjAct(act)}
-                  style={{ ...styles.hdjActChip, ...styles.hdjActChipActive }}
-                >
-                  {act} ×
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
+<div style={styles.keywordWrap}>
+{(state.hdjForm?.acts || []).length === 0 ? (
+<div style={{ color: "#64748b" }}>Aucun acte sélectionné</div>
+) : (
+state.hdjForm.acts.map((act) => (
+<button
+key={act}
+type="button"
+onClick={() => removeHdjAct(act)}
+style={{ ...styles.hdjActChip, ...styles.hdjActChipActive }}
+>
+{act} ×
+</button>
+))
+)}
+</div>
+</div>
+</div>
 
-      <div style={styles.hdjSectionBox}>
-        <div style={styles.hdjSectionTitle}>Personnalisation</div>
+<div style={styles.hdjSectionBox}>
+<div style={styles.hdjSectionTitle}>Personnalisation</div>
 
-        <div style={styles.fieldBlock}>
-          <label style={styles.label}>Ajouter un acte libre</label>
-          <div style={styles.rowWrap}>
-            <input
-              value={state.customActInput || ""}
-              onChange={(e) =>
-                persistCopilot({ customActInput: e.target.value })
-              }
-              style={styles.inputSmall}
-              placeholder="Ex : bilan douleur, ECG..."
-            />
-            <button
-              type="button"
-              onClick={addHdjAct}
-              style={styles.ghostBtn}
-            >
-              + Ajouter
-            </button>
-          </div>
-        </div>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Ajouter un acte libre</label>
+<div style={styles.rowWrap}>
+<input
+value={state.customActInput || ""}
+onChange={(e) =>
+persistCopilot({ customActInput: e.target.value })
+}
+style={styles.inputSmall}
+placeholder="Ex : bilan douleur, ECG..."
+/>
+<button
+type="button"
+onClick={addHdjAct}
+style={styles.ghostBtn}
+>
++ Ajouter
+</button>
+</div>
+</div>
 
-        <div style={styles.fieldBlock}>
-          <label style={styles.label}>Commentaire</label>
-          <textarea
-            value={state.hdjForm?.comment || ""}
-            onChange={(e) => updateHdjForm({ comment: e.target.value })}
-            style={styles.hdjTextareaSmall}
-          />
-        </div>
-      </div>
+<div style={styles.fieldBlock}>
+<label style={styles.label}>Commentaire</label>
+<textarea
+value={state.hdjForm?.comment || ""}
+onChange={(e) => updateHdjForm({ comment: e.target.value })}
+style={styles.hdjTextareaSmall}
+/>
+</div>
+</div>
 
-      <div style={styles.summaryBoxLight}>
-        <strong>Résumé automatique :</strong>
-        <div>{computeHdjSummary(state.hdjForm)}</div>
-      </div>
+<div style={styles.summaryBoxLight}>
+<strong>Résumé automatique :</strong>
+<div>{computeHdjSummary(state.hdjForm)}</div>
+</div>
 
-      <div style={styles.hdjFooterBar}>
-        <div style={styles.rowWrap}>
-          <button
-            type="button"
-            onClick={handlePreviewHdj}
-            style={styles.secondaryBtn}
-          >
-            {state.hdjMailPreviewOpen ? "Masquer l’aperçu" : "Prévisualiser"}
-          </button>
+<div style={styles.hdjFooterBar}>
+<div style={styles.rowWrap}>
+<button
+type="button"
+onClick={handlePreviewHdj}
+style={styles.secondaryBtn}
+>
+{state.hdjMailPreviewOpen ? "Masquer l’aperçu" : "Prévisualiser"}
+</button>
 
-          <button
-            type="button"
-            onClick={handlePrintHdj}
-            style={styles.secondaryBtn}
-          >
-            Imprimer
-          </button>
+<button
+type="button"
+onClick={handlePrintHdj}
+style={styles.secondaryBtn}
+>
+Imprimer
+</button>
 
-          <button
-            type="button"
-            onClick={handleDownloadHdjPdf}
-            style={styles.secondaryBtn}
-          >
-            Télécharger
-          </button>
-        </div>
+<button
+type="button"
+onClick={handleDownloadHdjPdf}
+style={styles.secondaryBtn}
+>
+Télécharger
+</button>
+</div>
 
-        <div style={styles.rowWrap}>
-          <button
-            type="button"
-            onClick={() => persistCopilot({ hdjStatus: "followup" })}
-            style={styles.secondaryBtn}
-          >
-            Relancer
-          </button>
+<div style={styles.rowWrap}>
+<button
+type="button"
+onClick={() => persistCopilot({ hdjStatus: "followup" })}
+style={styles.secondaryBtn}
+>
+Relancer
+</button>
 
-          <button
-            type="button"
-            onClick={() => persistCopilot({ hdjStatus: "received" })}
-            style={styles.secondaryBtn}
-          >
-            Reçu
-          </button>
+<button
+type="button"
+onClick={() => persistCopilot({ hdjStatus: "received" })}
+style={styles.secondaryBtn}
+>
+Reçu
+</button>
 
-          <button
-            type="button"
-            onClick={() => persistCopilot({ hdjStatus: "programmed" })}
-            style={styles.secondaryBtn}
-          >
-            Programmé
-          </button>
-
+<button
+type="button"
+onClick={() => persistCopilot({ hdjStatus: "programmed" })}
+style={styles.secondaryBtn}
+>
+Programmé
+</button>
 
 <button
 type="button"
@@ -5277,7 +5270,7 @@ validatedBy: currentUser.name,
 },
 decisionLog: [
 buildAutoDecisionLogEntry(
-`HDJ validé : ${(prev.hdjForm?.title || "HDJ")}`,
+`HDJ validé : ${prev.hdjForm?.title || "HDJ"}`,
 currentUser.name
 ),
 ...safeArray(prev.decisionLog),
@@ -5291,90 +5284,87 @@ style={styles.primaryBtn}
 Valider le HDJ
 </button>
 
+<button
+type="button"
+onClick={() => {
+if (!state.hdjForm?.objective?.trim()) {
+alert("Objectif HDJ manquant");
+return;
+}
+if (!state.hdjForm?.actor?.trim()) {
+alert("Acteur porteur HDJ manquant");
+return;
+}
+if (!state.hdjForm?.requestedDate) {
+alert("Date souhaitée manquante");
+return;
+}
+if ((state.hdjForm?.acts || []).length === 0) {
+alert("Au moins un acte HDJ est obligatoire");
+return;
+}
 
+const mailText = buildHdjMail({
+patient,
+currentLocation: state.currentLocation,
+coordination: state.coordination,
+targetDate: state.targetDate,
+hdjForm: state.hdjForm,
+});
 
-          <button
-            type="button"
-            onClick={() => {
-              if (!state.hdjForm?.objective?.trim()) {
-                alert("Objectif HDJ manquant");
-                return;
-              }
-              if (!state.hdjForm?.actor?.trim()) {
-                alert("Acteur porteur HDJ manquant");
-                return;
-              }
-              if (!state.hdjForm?.requestedDate) {
-                alert("Date souhaitée manquante");
-                return;
-              }
-              if ((state.hdjForm?.acts || []).length === 0) {
-                alert("Au moins un acte HDJ est obligatoire");
-                return;
-              }
+persistCopilot((prev) => ({
+hdjSendLog: [
+{
+id: `hdj_mail_${Date.now()}`,
+to: HDJ_SECRETARIAT_EMAIL,
+sentAt: new Date().toISOString(),
+body: mailText,
+},
+...(prev.hdjSendLog || []),
+],
+hdjStatus: "waiting",
+hdjMailPreviewOpen: true,
+}));
 
-              const mailText = buildHdjMail({
-                patient,
-                currentLocation: state.currentLocation,
-                coordination: state.coordination,
-                targetDate: state.targetDate,
-                hdjForm: state.hdjForm,
-              });
+alert("Synthèse HDJ préparée pour le secrétariat.");
+}}
+style={styles.primaryBtn}
+>
+Envoyer au secrétariat
+</button>
+</div>
+</div>
 
-              persistCopilot((prev) => ({
-                hdjSendLog: [
-                  {
-                    id: `hdj_mail_${Date.now()}`,
-                    to: HDJ_SECRETARIAT_EMAIL,
-                    sentAt: new Date().toISOString(),
-                    body: mailText,
-                  },
-                  ...(prev.hdjSendLog || []),
-                ],
-                hdjStatus: "waiting",
-                hdjMailPreviewOpen: true,
-              }));
+{state.hdjMailPreviewOpen ? (
+<div style={styles.historyBox}>
+<div style={styles.infoLabel}>
+Synthèse secrétariat HDJ ({HDJ_SECRETARIAT_EMAIL})
+</div>
+<pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>
+{buildHdjMail({
+patient,
+currentLocation: state.currentLocation,
+coordination: state.coordination,
+targetDate: state.targetDate,
+hdjForm: state.hdjForm,
+})}
+</pre>
+</div>
+) : null}
 
-              alert("Synthèse HDJ préparée pour le secrétariat.");
-            }}
-            style={styles.primaryBtn}
-          >
-            Envoyer au secrétariat
-          </button>
-        </div>
-      </div>
-
-      {state.hdjMailPreviewOpen ? (
-        <div style={styles.historyBox}>
-          <div style={styles.infoLabel}>
-            Synthèse secrétariat HDJ ({HDJ_SECRETARIAT_EMAIL})
-          </div>
-          <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>
-            {buildHdjMail({
-              patient,
-              currentLocation: state.currentLocation,
-              coordination: state.coordination,
-              targetDate: state.targetDate,
-              hdjForm: state.hdjForm,
-            })}
-          </pre>
-        </div>
-      ) : null}
-
-      {(state.hdjSendLog || []).length > 0 ? (
-        <div style={styles.historyBox}>
-          <div style={styles.infoLabel}>Historique envois HDJ</div>
-          {(state.hdjSendLog || []).map((mail) => (
-            <div key={mail.id} style={styles.smallNote}>
-              {formatDateTime(mail.sentAt)} · envoyé à {mail.to}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  ) : null}
+{(state.hdjSendLog || []).length > 0 ? (
+<div style={styles.historyBox}>
+<div style={styles.infoLabel}>Historique envois HDJ</div>
+{(state.hdjSendLog || []).map((mail) => (
+<div key={mail.id} style={styles.smallNote}>
+{formatDateTime(mail.sentAt)} · envoyé à {mail.to}
+</div>
+))}
+</div>
+) : null}
+</div>
+) : null}
 </section>
-
 
 {/* =========================
 DEMANDES EXTERNES
@@ -5382,11 +5372,11 @@ DEMANDES EXTERNES
 <section
 id="section-demandes"
 style={{
-display: state.activeSection === "demandes" ? "grid" : "none",
 ...styles.card,
+scrollMarginTop: 100,
+display: state.activeSection === "demandes" ? "grid" : "none",
 }}
 >
-
 <div style={styles.cardHeader}>
 <div style={styles.cardTitle}>Demandes externes</div>
 <div style={styles.rowWrap}>
@@ -5397,7 +5387,9 @@ display: state.activeSection === "demandes" ? "grid" : "none",
 </div>
 
 {Object.keys(state.resourceFollowUp || {}).length === 0 ? (
-<div style={styles.smallNote}>Aucune demande tracée pour le moment.</div>
+<div style={styles.smallNote}>
+Aucune demande tracée pour le moment.
+</div>
 ) : (
 <div style={styles.stack}>
 {Object.entries(state.resourceFollowUp)
@@ -5414,14 +5406,16 @@ refused: 7,
 closed: 8,
 draft: 9,
 };
-return (priorityOrder[a?.status] ?? 99) - (priorityOrder[b?.status] ?? 99);
+return (
+(priorityOrder[a?.status] ?? 99) -
+(priorityOrder[b?.status] ?? 99)
+);
 })
 .map(([resourceId, demand]) => {
 const resource = mergedResources.find((r) => r.id === resourceId);
 const followMeta = getFollowMeta(demand);
 const historyItems = state.resourceHistory?.[resourceId] || [];
 const isExpanded = state.expandedHistory?.[resourceId] || false;
-
 
 return (
 <div key={resourceId} style={styles.workflowCard}>
@@ -5441,29 +5435,39 @@ return (
 </div>
 
 <div style={styles.workflowSentence}>
-  {historyItems.length > 0 && (
+{historyItems.length > 0 ? (
 <div style={styles.historyBlock}>
 <div style={styles.historyTitle}>Historique</div>
 
 <div style={styles.historyList}>
-{(isExpanded ? historyItems : historyItems.slice(0, 3)).map((item, index) => (
+{(isExpanded ? historyItems : historyItems.slice(0, 3)).map(
+(item, index) => (
 <div key={index} style={styles.historyItem}>
-<span style={styles.historyItemLabel}>{item.label}</span>
+<span style={styles.historyItemLabel}>
+{item.label}
+</span>
 
 {item.reason ? (
-<span style={styles.historyItemReason}> — {item.reason}</span>
+<span style={styles.historyItemReason}>
+{" "}
+— {item.reason}
+</span>
 ) : null}
 
 <div style={styles.historyItemMeta}>
 {formatRelativeTime(item.at)}
-{item.by ? ` · ${item.by}${item.role ? ` (${item.role})` : ""}` : ""}
+{item.by
+? ` · ${item.by}${
+item.role ? ` (${item.role})` : ""
+}`
+: ""}
+</div>
+</div>
+)
+)}
+</div>
 
-</div>
-</div>
-))}
-</div>
-
-{historyItems.length > 3 && (
+{historyItems.length > 3 ? (
 <div
 style={styles.historyToggle}
 onClick={() =>
@@ -5471,40 +5475,41 @@ setState((prev) => ({
 ...prev,
 expandedHistory: {
 ...prev.expandedHistory,
-[resourceId]: !prev.expandedHistory?.[resourceId],
+[resourceId]:
+!prev.expandedHistory?.[resourceId],
 },
 }))
 }
 >
 {isExpanded ? "Voir moins" : "Voir plus"}
 </div>
-)}
+) : null}
 </div>
-)}
+) : null}
 
 {demand?.status === "followup" && "Relance à faire maintenant"}
-{demand?.status === "needs_clarification" && "Informations à compléter"}
+{demand?.status === "needs_clarification" &&
+"Informations à compléter"}
 {demand?.status === "waiting" && "En attente de réponse"}
 {demand?.status === "sent" && "Demande envoyée"}
 {demand?.status === "accepted" && "Acceptée"}
 {demand?.status === "refused" && "Refusée"}
 {demand?.status === "abandoned" && "Abandonnée"}
 {(!demand?.status || demand?.status === "draft") && "À initier"}
-{demand?.status === "refused" && demand?.refusalReason && (
-<div style={styles.motifInline}>
- {demand.refusalReason}
-</div>
-)}
 
-{demand?.status === "abandoned" && demand?.abandonReason && (
+{demand?.status === "refused" && demand?.refusalReason ? (
+<div style={styles.motifInline}>
+{demand.refusalReason}
+</div>
+) : null}
+
+{demand?.status === "abandoned" && demand?.abandonReason ? (
 <div style={styles.motifInline}>
 Abandon : {demand.abandonReason}
 </div>
-)}
+) : null}
 </div>
 
-
- 
 <div style={styles.workflowActions}>
 <button
 type="button"
@@ -5528,7 +5533,9 @@ by: "Utilisateur",
 }
 style={{
 ...styles.secondaryBtn,
-...(demand?.status === "followup" ? styles.primaryBtn : {}),
+...(demand?.status === "followup"
+? styles.primaryBtn
+: {}),
 }}
 >
 Relancer
@@ -5556,13 +5563,16 @@ by: "Utilisateur",
 }
 style={{
 ...styles.secondaryBtn,
-...(demand?.status === "waiting" ? styles.waitingBtnActive : {}),
+...(demand?.status === "waiting"
+? styles.waitingBtnActive
+: {}),
 }}
 >
 Attente
 </button>
 
 <button
+type="button"
 onClick={() =>
 setState((prev) => ({
 ...prev,
@@ -5583,7 +5593,9 @@ by: "Utilisateur",
 }
 style={{
 ...styles.secondaryBtn,
-...(demand?.status === "accepted" ? styles.acceptedBtnActive : {}),
+...(demand?.status === "accepted"
+? styles.acceptedBtnActive
+: {}),
 }}
 >
 Accepter
@@ -5595,12 +5607,15 @@ onClick={() =>
 setState((prev) => ({
 ...prev,
 pendingRefusalResourceId: resourceId,
-pendingRefusalReason: demand?.refusalReason || REFUSAL_REASONS[0],
+pendingRefusalReason:
+demand?.refusalReason || REFUSAL_REASONS[0],
 }))
 }
 style={{
 ...styles.secondaryBtn,
-...(demand?.status === "refused" ? styles.refusalBtnActive : {}),
+...(demand?.status === "refused"
+? styles.refusalBtnActive
+: {}),
 }}
 >
 Refus
@@ -5612,12 +5627,15 @@ onClick={() =>
 setState((prev) => ({
 ...prev,
 pendingAbandonResourceId: resourceId,
-pendingAbandonReason: demand?.abandonReason || ABANDON_REASONS[0],
+pendingAbandonReason:
+demand?.abandonReason || ABANDON_REASONS[0],
 }))
 }
 style={{
 ...styles.secondaryBtn,
-...(demand?.status === "abandoned" ? styles.abandonBtnActive : {}),
+...(demand?.status === "abandoned"
+? styles.abandonBtnActive
+: {}),
 }}
 >
 Abandonner
@@ -5673,7 +5691,9 @@ setState((prev) => ({
 resourceFollowUp: {
 ...prev.resourceFollowUp,
 [prev.pendingAbandonResourceId]: {
-...(prev.resourceFollowUp?.[prev.pendingAbandonResourceId] || {}),
+...(prev.resourceFollowUp?.[
+prev.pendingAbandonResourceId
+] || {}),
 status: "abandoned",
 abandonReason: prev.pendingAbandonReason,
 },
@@ -5693,9 +5713,7 @@ Confirmer abandon
 {state.pendingRefusalResourceId ? (
 <div style={styles.modalOverlay}>
 <div style={styles.modal}>
-<div style={styles.modalTitle}>
-Motif du refus prestataire
-</div>
+<div style={styles.modalTitle}>Motif du refus prestataire</div>
 
 <select
 value={state.pendingRefusalReason}
@@ -5737,17 +5755,23 @@ setState((prev) => ({
 resourceFollowUp: {
 ...prev.resourceFollowUp,
 [prev.pendingRefusalResourceId]: {
-...(prev.resourceFollowUp?.[prev.pendingRefusalResourceId] || {}),
+...(prev.resourceFollowUp?.[
+prev.pendingRefusalResourceId
+] || {}),
 status: "refused",
 refusalReason: prev.pendingRefusalReason,
 },
 },
-resourceHistory: pushResourceHistory(prev, prev.pendingRefusalResourceId, {
+resourceHistory: pushResourceHistory(
+prev,
+prev.pendingRefusalResourceId,
+{
 type: "refused",
 label: "Refusée",
 reason: prev.pendingRefusalReason,
 by: "Utilisateur",
-}),
+}
+),
 pendingRefusalResourceId: null,
 }));
 }}
@@ -5765,35 +5789,60 @@ Confirmer refus
 ) : null}
 </section>
 
-
-
 {/* =========================
-SYNTHESE + HDJ
+SYNTHESE
 ========================= */}
 <section
 id="section-synthese"
 style={{
 display: state.activeSection === "synthese" ? "grid" : "none",
+scrollMarginTop: 100,
 ...styles.card,
 }}
 >
+
 <div style={styles.cardHeader}>
 <div style={styles.cardTitle}>Synthèse</div>
-<button type="button" onClick={exportSynthesis} style={styles.secondaryBtn}>
+<button
+type="button"
+onClick={exportSynthesis}
+style={styles.secondaryBtn}
+>
 Copier la synthèse
 </button>
 </div>
 
 <div style={styles.summaryBox}>
-<div><strong>Situation :</strong> {quickSummary.situation || "—"}</div>
-<div><strong>Blocage principal :</strong> {quickSummary.block || "—"}</div>
-<div><strong>Stratégie :</strong> {quickSummary.strategy || state.selectedOrientation || "—"}</div>
-<div><strong>Prochaine action :</strong> {quickSummary.nextAction || "—"}</div>
-<div><strong>Pilotage :</strong> {quickSummary.owner || state.coordination?.responsableActuel || "—"}</div>
-<div><strong>Date cible :</strong> {state.targetDate ? formatShortDate(state.targetDate) : "Non définie"}</div>
-<div><strong>Orientation :</strong> {state.selectedOrientation || "À définir"}</div>
-<div><strong>Plan B :</strong> {state.orientationPlanB || "—"}</div>
-<div><strong>Plan C :</strong> {state.orientationPlanC || "—"}</div>
+<div>
+<strong>Situation :</strong> {quickSummary.situation || "—"}
+</div>
+<div>
+<strong>Blocage principal :</strong> {quickSummary.block || "—"}
+</div>
+<div>
+<strong>Stratégie :</strong>{" "}
+{quickSummary.strategy || state.selectedOrientation || "—"}
+</div>
+<div>
+<strong>Prochaine action :</strong> {quickSummary.nextAction || "—"}
+</div>
+<div>
+<strong>Pilotage :</strong>{" "}
+{quickSummary.owner || state.coordination?.responsableActuel || "—"}
+</div>
+<div>
+<strong>Date cible :</strong>{" "}
+{state.targetDate ? formatShortDate(state.targetDate) : "Non définie"}
+</div>
+<div>
+<strong>Orientation :</strong> {state.selectedOrientation || "À définir"}
+</div>
+<div>
+<strong>Plan B :</strong> {state.orientationPlanB || "—"}
+</div>
+<div>
+<strong>Plan C :</strong> {state.orientationPlanC || "—"}
+</div>
 </div>
 
 <div style={styles.sectionBanner}>
@@ -5844,15 +5893,16 @@ Ajouter la décision
 )}
 </div>
 </section>
+
 <button
-  type="button"
-  style={styles.postitFab}
-  onClick={() => setShowPostitComposer(true)}
+type="button"
+style={styles.postitFab}
+onClick={() => setShowPostitComposer(true)}
 >
-  {postitNotificationsCount > 0 ? `+ ${postitNotificationsCount}` : "+"}
+{postitNotificationsCount > 0 ? `+ ${postitNotificationsCount}` : "+"}
 </button>
 
-{showPostitComposer && (
+{showPostitComposer ? (
 <div style={styles.postitComposer}>
 <select
 value={newPostit.type}
@@ -5894,55 +5944,41 @@ Ajouter
 </button>
 </div>
 </div>
-)}
+) : null}
 </main>
 </div>
 </div>
 );
 }
-
-/* =========================
-STYLES
-========================= */
-
 const styles = {
 page: {
-padding: 16,
-background: "linear-gradient(180deg, rgba(245,248,255,1) 0%, rgba(249,250,252,1) 100%)",
-minHeight: "100%",
-},
-identityFullWidth: {
 width: "100%",
-marginBotton: 24,
+minHeight: "100%",
+padding: 16,
+boxSizing: "border-box",
+background:
+"linear-gradient(180deg, rgba(245,248,255,1) 0%, rgba(249,250,252,1) 100%)",
 },
 
-
-careSelectCard: {
-background: "#ffffff",
-border: "1px solid #e2e8f0",
-borderRadius: 14,
-padding: "10px 12px",
+copilotTopGrid: {
 display: "grid",
-gap: 4,
-minWidth: 200,
+gridTemplateColumns: "1fr 1fr",
+gap: 16,
 },
 
-careSelectLabel: {
-fontSize: 11,
-color: "#64748b",
-fontWeight: 700,
-textTransform: "uppercase",
+copilotMetaRow: {
+gridColumn: "1 / -1",
+display: "grid",
+gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+gap: 12,
 },
 
-careSelectInput: {
-minHeight: 36,
-borderRadius: 10,
-border: "1px solid #dbe4f0",
-background: "#f8fbff",
-fontWeight: 600,
-padding: "0 8px",
+row2cols: {
+display: "grid",
+gridTemplateColumns: "1fr 1fr",
+gap: 12,
+width: "100%",
 },
-
 
 identityWrapper: {
 width: "100%",
@@ -5950,1009 +5986,47 @@ marginBottom: 24,
 paddingBottom: 8,
 borderBottom: "1px solid #e2e8f0",
 },
-page: {
-width: "100%",
-padding: 16,
-boxSizing: "border-box",
-},
-identityInner: {
-maxWidth: 1200,
-margin: "0 auto",
-padding: "12px 16px",
-},
-page: {
-  width: "100",
-},
-identityFullWidth: {
-width: "100%",
-padding: "0 16px",
-boxSizing: "border-box",
-},
-decisionQualificationGrid: {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 16,
-  alignItems: "start",
-},
-
-
-infoCard: {
-  background: "#f8fafc",
-  border: "1px solid #e4ebf3",
-  borderRadius: 16,
-  padding: 16,
-  display: "grid",
-  gap: 10,
-  alignContent: "start",
-},
-
-cardHeaderSpacer: {
-  width: 96,
-  height: 1,
-},
-
-previewTopRow: {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 8,
-  flexWrap: "wrap",
-},
-
-previewRowHighlight: {
-  border: "2px solid #3b82f6",
-  background: "#eff6ff",
-},
-
-orientationPriorityBox: {
-  marginTop: 8,
-  marginBottom: 10,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "#f0f9ff",
-  border: "1px solid #bae6fd",
-  color: "#075985",
-  fontWeight: 700,
-  fontSize: 13,
-},
-
-orientationPriorityBox: {
-  marginTop: 8,
-  marginBottom: 10,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "#f0f9ff",
-  border: "1px solid #bae6fd",
-  color: "#075985",
-  fontWeight: 700,
-  fontSize: 13,
-},
-
-anticipationButton: {
-  minHeight: 44,
-  borderRadius: 12,
-  border: "1px solid #dbe4f0",
-  background: "#ffffff",
-  color: "#17376a",
-  padding: "0 14px",
-  fontSize: 13,
-  fontWeight: 700,
-  cursor: "pointer",
-  textAlign: "left",
-  display: "flex",
-  alignItems: "center",
-  width: "100%",
-},
-linkBtn: {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minHeight: 34,
-  borderRadius: 10,
-  border: "1px solid #dbeafe",
-  background: "#eff6ff",
-  color: "#1d4ed8",
-  padding: "0 12px",
-  textDecoration: "none",
-  fontWeight: 700,
-  fontSize: 12,
-},
-
-hdjFormHeader: {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 12,
-  flexWrap: "wrap",
-},
-
-hdjHero: {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 16,
-  padding: "16px 18px",
-  borderRadius: 16,
-  background: "linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%)",
-  border: "1px solid #dbeafe",
-},
-
-hdjHeroMain: {
-  display: "grid",
-  gap: 4,
-},
-
-hdjHeroTitle: {
-  fontSize: 22,
-  fontWeight: 900,
-  color: "#17376a",
-},
-
-hdjHeroMeta: {
-  fontSize: 13,
-  color: "#64748b",
-  fontWeight: 600,
-},
-
-hdjHeroBadge: {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minHeight: 32,
-  padding: "0 12px",
-  borderRadius: 999,
-  background: "#dbeafe",
-  color: "#1d4ed8",
-  fontSize: 12,
-  fontWeight: 800,
-  whiteSpace: "nowrap",
-},
-
-hdjSectionBox: {
-  border: "1px solid #e5e7eb",
-  background: "#ffffff",
-  borderRadius: 14,
-  padding: 16,
-  display: "grid",
-  gap: 14,
-},
-
-
-
-hdjFieldsGrid: {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-  gap: 18,
-  alignItems: "start",
-},
-
-
-hdjActsGrid: {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  gap: 12,
-},
-
-hdjActsCategoryCard: {
-  border: "1px solid #e2e8f0",
-  borderRadius: 12,
-  padding: 12,
-  backgroundColor: "#f8fafc",
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-},
-
-hdjActsGroupTitle: {
-  fontSize: 13,
-  fontWeight: 700,
-  color: "#1e293b",
-  marginBottom: 4,
-  textTransform: "capitalize",
-},
-
-hdjActChip: {
-  height: 28,
-  borderRadius: 999,
-  border: "1px solid #e2e8f0",
-  background: "#f8fafc",
-  color: "#334155",
-  padding: "0 10px",
-  cursor: "pointer",
-  fontSize: 11,
-  fontWeight: 600,
-},
-
-hdjActChipActive: {
-  background: "#dbeafe",
-  borderColor: "#93c5fd",
-  color: "#1e3a8a",
-},
-
-hdjSelectedActsBox: {
-  marginTop: 12,
-  padding: 10,
-  borderRadius: 10,
-  backgroundColor: "#eef2ff",
-  border: "1px solid #c7d2fe",
-},
-
-hdjTextarea: {
-  minHeight: 96,
-  borderRadius: 10,
-  border: "1px solid #d1d5db",
-  padding: 10,
-  background: "#fff",
-  resize: "vertical",
-  width: "100%",
-},
-
-hdjTextareaSmall: {
-  minHeight: 84,
-  borderRadius: 10,
-  border: "1px solid #d1d5db",
-  padding: 10,
-  background: "#fff",
-  resize: "vertical",
-  width: "100%",
-},
-
-summaryBoxLight: {
-  border: "1px solid #e2e8f0",
-  background: "#f8fafc",
-  borderRadius: 12,
-  padding: 10,
-  fontSize: 12,
-  color: "#475569",
-},
-
-hdjFooterBar: {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-  flexWrap: "wrap",
-},
-
-hdjSelectedActsBox: {
-  marginTop: 12,
-  padding: 10,
-  borderRadius: 10,
-  backgroundColor: "#eef2ff",
-  border: "1px solid #c7d2fe",
-},
-
-hdjActsCategoryCard: {
-  border: "1px solid #e2e8f0",
-  borderRadius: 12,
-  padding: 12,
-  backgroundColor: "#f8fafc",
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-},
-
-hdjActsGroupTitle: {
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#1e293b",
-  marginBottom: 4,
-  textTransform: "capitalize",
-},
-
-hdjActsGrid: {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  gap: 12,
-},
-
-hdjHero: {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 16,
-  padding: "16px 18px",
-  borderRadius: 16,
-  background: "linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%)",
-  border: "1px solid #dbeafe",
-},
-
-hdjHeroMain: {
-  display: "grid",
-  gap: 4,
-},
-
-hdjHeroTitle: {
-  fontSize: 22,
-  fontWeight: 900,
-  color: "#17376a",
-},
-
-hdjHeroMeta: {
-  fontSize: 13,
-  color: "#64748b",
-  fontWeight: 600,
-},
-
-hdjHeroBadge: {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minHeight: 32,
-  padding: "0 12px",
-  borderRadius: 999,
-  background: "#dbeafe",
-  color: "#1d4ed8",
-  fontSize: 12,
-  fontWeight: 800,
-  whiteSpace: "nowrap",
-},
-
-hdjFieldsGrid: {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: 14,
-},
-
-hdjFieldCard: {
-  border: "1px solid #e5e7eb",
-  background: "#ffffff",
-  borderRadius: 14,
-  padding: 14,
-  display: "grid",
-  gap: 8,
-},
-
-hdjActsGrid: {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: 12,
-},
-
-hdjActsCategoryCard: {
-  border: "1px solid #e5e7eb",
-  background: "#ffffff",
-  borderRadius: 14,
-  padding: 14,
-  display: "grid",
-  gap: 10,
-},
-
-hdjActsGroupTitle: {
-  fontSize: 13,
-  fontWeight: 800,
-  color: "#0f172a",
-  textTransform: "capitalize",
-},
-
-hdjActsGroup: {
-  display: "grid",
-  gap: 6,
-},
-
-fieldBlock: {
-  display: "grid",
-  gap: 8,
-},
-
-label: {
-  fontSize: 12,
-  color: "#64748b",
-  fontWeight: 700,
-  letterSpacing: "0.01em",
-},
-
-hdjActsGroupTitle: {
-  fontSize: 12,
-  fontWeight: 800,
-  color: "#475569",
-  textTransform: "capitalize",
-},
-
-hdjActChip: {
-  height: 28,
-  borderRadius: 999,
-  border: "1px solid #e2e8f0",
-  background: "#f8fafc",
-  color: "#334155",
-  padding: "0 10px",
-  cursor: "pointer",
-  fontSize: 11,
-  fontWeight: 600,
-},
-
-hdjActChipActive: {
-  background: "#dbeafe",
-  borderColor: "#93c5fd",
-  color: "#1e3a8a",
-},
-
-hdjFormHeader: {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 12,
-  flexWrap: "wrap",
-},
-
-hdjSectionBox: {
-  border: "1px solid #e5e7eb",
-  background: "linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)",
-  borderRadius: 18,
-  padding: 20,
-  display: "grid",
-  gap: 18,
-  boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
-},
-
-hdjSectionTitle: {
-  fontSize: 16,
-  fontWeight: 900,
-  color: "#17376a",
-  marginBottom: 2,
-},
-label: {
-  fontSize: 11,
-  color: "#64748b",
-  fontWeight: 700,
-  marginBottom: 4,
-},
-
-infoLabel: {
-  fontSize: 10,
-  color: "#64748b",
-  fontWeight: 800,
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-},
-
-infoMiniValue: {
-  fontSize: 15,
-  fontWeight: 700,
-  color: "#0f172a",
-},
-
-decisionMetaCompactGrid: {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: 10,
-},
-
-copilotSuggestionBox: {
-  background: "#f8fafc",
-border: "1px dashed #e2e8f0",
-  borderRadius: 12,
-  padding: "12px 16px",
-  display: "grid",
-  gap: 8,
-},
-
-
-copilotSuggestionMain: {
-   fontSize: 16,
-  fontWeight: 700,
-  color: "#0f172a",
-  lineHeight: 1.1,
-},
-
-
-copilotSuggestionLabel: {
-  fontSize: 12,
-  color: "#64748b",
-  fontWeight: 800,
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-},
-
-copilotSuggestionMain: {
-  fontSize: 28,
-  fontWeight: 900,
-  color: "#0f172a",
-  lineHeight: 1.1,
-},
-
-copilotSuggestionAlt: {
-  fontSize: 13,
-  color: "#475569",
-  fontWeight: 600,
-},
-
-decisionHero: {
-  border: "1px solid #dbeafe",
-  background: "#eff6ff",
-  borderRadius: 14,
-  padding: 14,
-  display: "grid",
-  gap: 6,
-},
-
-decisionHeroLabel: {
-  fontSize: 12,
-  fontWeight: 800,
-  color: "#64748b",
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-},
-
-decisionHeroValue: {
-  fontSize: 28,
-  fontWeight: 900,
-  color: "#17376a",
-  lineHeight: 1.1,
-},
-
-keywordChip: {
-  height: 24,
-  borderRadius: 999,
-  border: "1px solid #e2e8f0",
-  background: "#f8fafc",
-  color: "#334155",
-  padding: "0 8px",
-  cursor: "pointer",
-  fontSize: 11,
-  fontWeight: 600,
-},
 
 mainSingle: {
 display: "grid",
 gap: 16,
 },
 
-contentWithSidebar: {
-display: "grid",
-gridTemplateColumns: "260px 1fr",
-gap: 16,
-alignItems: "start",
-},
-
-sidebarUnderIdentity: {
-position: "sticky",
-top: 16,
-alignSelf: "start",
-maxHeight: "calc(100vh - 32px)",
-overflowY: "auto",
-border: "1px solid #dbe4f0",
-borderRadius: 22,
-background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
-boxShadow: "0 12px 30px rgba(15, 23, 42, 0.06)",
-padding: 12,
-},
-
-
-postitContainer: {
-  display: "flex",
-  flexDirection: "column",
-  gap: "12px",
-},
-
-cardHeader: {
-display: "flex",
-justifyContent: "space-between",
-alignItems: "center",
-},
-
-addBtn: {
-width: 26,
-height: 26,
-borderRadius: "50%",
-border: "none",
-background: "#ffd54f",
-fontWeight: "bold",
-cursor: "pointer",
-},
-cardHeader: {
-display: "flex",
-justifyContent: "space-between",
-alignItems: "center",
-},
-
-addBtn: {
-width: 26,
-height: 26,
-borderRadius: "50%",
-border: "none",
-background: "#ffd54f",
-fontWeight: "bold",
-cursor: "pointer",
-},
-
-cardHeader: {
-display: "flex",
-justifyContent: "space-between",
-alignItems: "center",
-},
-
-addBtn: {
-width: 26,
-height: 26,
-borderRadius: "50%",
-border: "none",
-background: "#ffd54f",
-fontWeight: "bold",
-cursor: "pointer",
-},
-
-grid2: {
-display: "grid",
-gridTemplateColumns: "1fr 1fr",
-gap: 16,
-},
-postitSection: {
-marginTop: 12,
-display: "flex",
-justifyContent: "center", // 🔥 centre horizontal
-alignItems: "center",
-flexWrap: "wrap",
-gap: 12,
-},
-
-inlinePostit: {
-  width: "100%",
-  minHeight: "150px",
-  padding: "16px",
-  borderRadius: "12px",
-  display: "flex",
-  flexDirection: "column",
-  justifyContent: "space-between",
-  boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-  gap: 10,
-},
-
-postitMiniChip: {
-minHeight: 40,
-borderRadius: 999,
-padding: "0 10px",
-display: "inline-flex",
-alignItems: "center",
-boxShadow: "0 8px 20px rgba(0,0,0,0.12)",
-pointerEvents: "auto",
-},
-
-postitMiniButton: {
-border: "none",
-background: "transparent",
-display: "inline-flex",
-alignItems: "center",
-gap: 8,
-fontWeight: 800,
-cursor: "pointer",
-padding: 0,
-},
-
-postitNotifDot: {
-width: 8,
-height: 8,
-borderRadius: "50%",
-background: "#ef4444",
-display: "inline-block",
-},
-
-
-postitFab: {
-position: "fixed",
-right: 20,
-bottom: 20,
-zIndex: 10002,
-width: 44,
-height: 44,
-borderRadius: "50%",
-border: "none",
-background: "#facc15",
-color: "#111827",
-fontSize: 24,
-fontWeight: 900,
-cursor: "pointer",
-boxShadow: "0 8px 20px rgba(0,0,0,0.18)",
-},
-
-postitComposer: {
-position: "fixed",
-right: 20,
-bottom: 76,
-width: 280,
-zIndex: 10003,
-background: "#ffffff",
-border: "1px solid #e5e7eb",
-borderRadius: 14,
-padding: 12,
-display: "grid",
-gap: 10,
-boxShadow: "0 16px 40px rgba(0,0,0,0.18)",
-},
-
-floatingLayer: {
-position: 'fixed',
-bottom: 20,
-right: 20,
-display: 'flex',
-flexDirection: 'column',
-gap: 12,
-zIndex: 9999,
-pointerEvents: 'none',
-},
-
-floatingPostit: {
-width: 220,
+card: {
+border: "1px solid #dfe7f1",
 borderRadius: 16,
-padding: 12,
-display: "grid",
-gap: 8,
-pointerEvents: 'auto',
-},
-
-postitHeader: {
-display: "flex",
-justifyContent: "space-between",
-alignItems: "center",
-gap: 8,
-},
-
-postitActionBtn: {
-width: 28,
-height: 28,
-borderRadius: "50%",
-border: "none",
-background: "rgba(255,255,255,0.7)",
-cursor: "pointer",
-fontWeight: 900,
-},
-
-postitText: {
-fontSize: 16,
-lineHeight: 1.35,
-fontWeight: 700,
-color: "#1f2937",
-},
-
-postitMeta: {
-fontSize: 12,
-color: "#6b7280",
-},
-
-postitChip: {
-  display: "inline-flex",
-  alignItems: "center",
-  width: "fit-content",
-  minHeight: 24,
-  padding: "0 8px",
-  borderRadius: 999,
-  background: "rgba(255,255,255,0.65)",
-  fontSize: 11,
-  fontWeight: 800,
-},
-
-
-motifInline: {
-fontSize: 12,
-color: "#6b7280",
-marginTop: 2,
-},
-
-chipRefusal: {
-background: "#fee2e2",
-color: "#991b1b",
-padding: "4px 10px",
-borderRadius: 12,
-fontSize: 12,
-display: "inline-block",
-marginTop: 6,
-},
-
-chipAbandon: {
-background: "#e5e7eb",
-color: "#374151",
-padding: "4px 10px",
-borderRadius: 12,
-fontSize: 12,
-display: "inline-block",
-marginTop: 6,
-},
-
-waitingBtnActive: {
-background: "#fef3c7",
-borderColor: "#f59e0b",
-color: "#92400e",
-fontWeight: 800,
-},
-
-acceptedBtnActive: {
-background: "#dcfce7",
-borderColor: "#22c55e",
-color: "#166534",
-fontWeight: 800,
-},
-
-refusalBtnActive: {
-background: "#fee2e2",
-borderColor: "#dc2626",
-color: "#991b1b",
-fontWeight: 800,
-},
-
-modalOverlay: {
-position: "fixed",
-top: 0,
-left: 0,
-right: 0,
-bottom: 0,
-backgroundColor: "rgba(0,0,0,0.4)",
-display: "flex",
-alignItems: "center",
-justifyContent: "center",
-zIndex: 9999,
-},
-modal: {
+padding: 16,
 background: "#fff",
-padding: 20,
-borderRadius: 8,
-minWidth: 300,
-boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
-},
-
-
-refusalChip: {
-display: "inline-flex",
-alignItems: "center",
-minHeight: 28,
-padding: "0 10px",
-borderRadius: 999,
-background: "#fff1f2",
-border: "1px solid #fecdd3",
-color: "#be123c",
-fontSize: 12,
-fontWeight: 800,
-},
-
-abandonChip: {
-display: "inline-flex",
-alignItems: "center",
-minHeight: 28,
-padding: "0 10px",
-borderRadius: 999,
-background: "#f8fafc",
-border: "1px solid #cbd5e1",
-color: "#334155",
-fontSize: 12,
-fontWeight: 800,
-},
-
-
-workflowCard: {
-border: "1px solid #e2e8f0",
-borderRadius: 16,
-background: "#ffffff",
-padding: 14,
 display: "grid",
-gap: 12,
+gap: 14,
+boxShadow: "none",
+marginBottom: 16,
 },
 
-workflowHeader: {
-display: "flex",
-justifyContent: "space-between",
-alignItems: "center",
-},
-
-workflowTitle: {
-fontSize: 15,
-fontWeight: 800,
-},
-
-workflowSentence: {
-fontSize: 13,
-color: "#475569",
-},
-
-workflowActions: {
-display: "flex",
-gap: 8,
-},
-
-
-workflowCard: {
-border: "1px solid #e2e8f0",
-borderRadius: 16,
-background: "#ffffff",
-padding: 14,
-display: "grid",
-gap: 12,
-},
-
-workflowHeader: {
-display: "flex",
-justifyContent: "space-between",
-gap: 12,
-alignItems: "center",
-flexWrap: "wrap",
-},
-
-workflowTitle: {
-fontSize: 15,
-fontWeight: 800,
-color: "#0f172a",
-},
-
-workflowSentence: {
-fontSize: 13,
-lineHeight: 1.45,
-color: "#334155",
-fontWeight: 600,
-},
-
-workflowMetaRow: {
-display: "grid",
-gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-gap: 10,
-},
-
-workflowMetaItem: {
-border: "1px solid #edf2f7",
-borderRadius: 12,
-background: "#f8fafc",
-padding: 10,
-display: "grid",
-gap: 4,
-},
-
-workflowActions: {
-display: "flex",
-gap: 8,
-flexWrap: "wrap",
-},
-
-blockTitle: {
-fontSize: 13,
+cardTitle: {
+fontSize: 17,
 fontWeight: 900,
-textTransform: "uppercase",
-letterSpacing: "0.04em",
-color: "#065f46",
+color: "#17376a",
 },
 
-careHeaderRow: {
-display: "grid",
-gridTemplateColumns: "2fr 2fr 1fr 1fr 1fr 2fr",
-gap: 12,
-alignItems: "stretch", // 🔥 important
+cardSubTitle: {
+fontSize: 13,
+fontWeight: 800,
+color: "#374151",
 },
 
-careItem: {
+cardHeader: {
 display: "flex",
-flexDirection: "column",
-minWidth: 120,
+justifyContent: "space-between",
+gap: 12,
+alignItems: "center",
+flexWrap: "wrap",
 },
 
-careLabel: {
-fontSize: 11,
-color: "#64748b",
+cardHeaderSpacer: {
+width: 96,
+height: 1,
 },
-
-careValue: {
-fontSize: 14,
-fontWeight: 600,
-color: "#0f172a",
-},
-
-style: {
-position: "sticky",
-top: 84,
-alignSelf: "start",
-maxHeight: "calc(100vh - 96px)",
-overflowY: "auto",
-border: "1px solid #dbe4f0",
-borderRadius: 22,
-background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
-boxShadow: "0 12px 30px rgba(15, 23, 42, 0.06)",
-padding: 12,
-},
-
-
-
-
-
-anticipationCard: {
-border: "1px solid #e6edf5",
-background: "#f8fafc",
-},
-
 
 sectionHeaderBlock: {
 display: "flex",
@@ -6962,25 +6036,103 @@ gap: 12,
 flexWrap: "wrap",
 },
 
-summaryStrip: {
+sectionBanner: {
+border: "1px solid #dbeafe",
+background: "#eff6ff",
+borderRadius: 14,
+padding: 12,
 display: "grid",
-gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+gap: 8,
+},
+
+pathSentence: {
+fontSize: 13,
+lineHeight: 1.4,
+color: "#334155",
+fontWeight: 600,
+},
+
+rowWrap: {
+display: "flex",
+gap: 6,
+flexWrap: "wrap",
+alignItems: "center",
+},
+
+stack: {
+display: "grid",
 gap: 12,
 },
 
-summaryStripItem: {
-border: "1px solid #e5ebf2",
-borderRadius: 12,
-background: "#f8fafc",
-padding: 12,
+stackXs: {
 display: "grid",
+gap: 8,
+},
+
+grid2: {
+display: "grid",
+gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+gap: 12,
+},
+
+grid3: {
+display: "grid",
+gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+gap: 12,
+},
+
+decisionQualificationGrid: {
+display: "grid",
+gridTemplateColumns: "1fr 1fr",
+gap: 16,
+alignItems: "start",
+},
+
+careItem: {
+display: "flex",
+flexDirection: "column",
+minWidth: 120,
 gap: 6,
 },
 
-summaryStripValue: {
+careLabel: {
+fontSize: 11,
+color: "#64748b",
+fontWeight: 700,
+},
+
+careValue: {
 fontSize: 14,
+fontWeight: 600,
+color: "#0f172a",
+},
+
+infoCard: {
+background: "#f8fafc",
+border: "1px solid #e4ebf3",
+borderRadius: 16,
+padding: 16,
+display: "grid",
+gap: 10,
+alignContent: "start",
+},
+
+infoMiniCard: {
+background: "#ffffff",
+border: "1px solid #e5e7eb",
+borderRadius: 12,
+padding: "10px 12px",
+display: "grid",
+gap: 4,
+minHeight: 64,
+},
+
+infoLabel: {
+fontSize: 11,
+color: "#64748b",
 fontWeight: 800,
-color: "#17376a",
+textTransform: "uppercase",
+letterSpacing: "0.03em",
 },
 
 alertCard: {
@@ -7006,287 +6158,19 @@ background: "#ecfdf5",
 border: "1px solid #6ee7b7",
 },
 
+blockTitle: {
+fontSize: 13,
+fontWeight: 900,
+textTransform: "uppercase",
+letterSpacing: "0.04em",
+color: "#065f46",
+},
+
 alertMainText: {
 fontSize: 16,
 lineHeight: 1.4,
 fontWeight: 800,
 color: "#111827",
-},
-
-
-
-decisionMetaGrid: {
-display: "grid",
-gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-gap: 10,
-},
-
-decisionMain: {
-fontSize: 20,
-fontWeight: 700,
-marginBottom: 8,
-},
-
-decisionMeta: {
-display: "flex",
-gap: 20,
-fontSize: 13,
-marginBottom: 12,
-},
-
-metaLabel: {
-display: "block",
-color: "#6b7280",
-fontSize: 11,
-},
-
-blockText: {
-color: "#b91c1c",
-fontWeight: 600,
-},
-
-stackXs: {
-display: "grid",
-gap: 8,
-},
-
-anticipationButton: {
-  minHeight: 44,
-  borderRadius: 12,
-  border: "1px solid #cbd5e1",
-  background: "#ffffff",
-  color: "#17376a",
-  padding: "0 14px",
-  fontSize: 14,
-  fontWeight: 800,
-  cursor: "pointer",
-  textAlign: "left",
-  width: "100%",
-  justifyContent: "flex-start",
-  display: "flex",
-  alignItems: "center",
-  transition: "all 0.15s ease",
-  boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
-},
-anticipationButtonHover: {
-background: "#f1f5f9",
-},
-
-actionText: {
-color: "#1d4ed8",
-fontWeight: 600,
-},
-
-secondaryBtn: {
-  height: 32,
-  padding: "0 12px",
-  borderRadius: 8,
-  border: "1px solid #e2e8f0",
-  background: "#f8fafc",
-  color: "#334155",
-  fontWeight: 600,
-  fontSize: 13,
-  cursor: "pointer",
-},
-menuCounter: {
-minWidth: 22,
-height: 22,
-borderRadius: 999,
-display: "inline-flex",
-alignItems: "center",
-justifyContent: "center",
-padding: "0 6px",
-fontSize: 11,
-fontWeight: 900,
-border: "1px solid transparent",
-},
-
-menuCounterBlue: {
-background: "#dbeafe",
-color: "#1d4ed8",
-border: "1px solid #bfdbfe",
-},
-
-menuCounterAmber: {
-background: "#fef3c7",
-color: "#92400e",
-border: "1px solid #fde68a",
-},
-
-menuCounterRed: {
-background: "#fee2e2",
-color: "#b91c1c",
-border: "1px solid #fecaca",
-},
-identityCommuneRowClean: {
-display: "flex",
-alignItems: "center",
-gap: 10,
-marginTop: 6,
-},
-
-alert: {
-padding: "10px 12px",
-borderRadius: 10,
-fontWeight: 600,
-},
-
-alertRed: {
-background: "#fee2e2",
-color: "#991b1b",
-},
-
-alertAmber: {
-background: "#fef3c7",
-color: "#92400e",
-},
-
-alertGreen: {
-background: "#dcfce7",
-color: "#166534",
-},
-
-identityCommuneLabelClean: {
-fontSize: 12,
-fontWeight: 700,
-color: "#6b7280",
-minWidth: 70,
-},
-
-inputInlineClean: {
-minHeight: 30,
-borderRadius: 8,
-border: "1px solid #d1d5db",
-padding: "0 10px",
-background: "#fff",
-minWidth: 220,
-fontSize: 13,
-},
-identityRow: {
-display: "flex",
-flexWrap: "wrap",
-gap: 12,
-alignItems: "center",
-fontSize: 13,
-background: "#f8fafc",
-padding: "8px 12px",
-borderRadius: 12,
-border: "1px solid #e5e7eb",
-},
-
-identityNameCompact: {
-fontWeight: 900,
-fontSize: 15,
-color: "#111827",
-},
-
-identityCommuneInlineLabel: {
-fontSize: 12,
-fontWeight: 800,
-color: "#374151",
-},
-
-inputInlineCompact: {
-minHeight: 28,
-borderRadius: 8,
-border: "1px solid #d1d5db",
-padding: "0 8px",
-background: "#fff",
-minWidth: 180,
-},
-
-priorityBoxCompact: {
-border: "1px solid #dbeafe",
-background: "#f8fbff",
-borderRadius: 12,
-padding: 10,
-display: "grid",
-gap: 6,
-},
-identityBar: {
-borderRadius: 20,
-border: "1px solid #dbe4f0",
-background: "#ffffff",
-boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
-padding: 14,
-display: "grid",
-gap: 10,
-},
-
-identityHeaderRow: {
-display: "flex",
-justifyContent: "space-between",
-gap: 16,
-alignItems: "center",
-flexWrap: "wrap",
-},
-
-identityNameInline: {
-fontSize: 20,
-fontWeight: 900,
-color: "#111827",
-},
-
-identityInlineGrid: {
-display: "grid",
-gridTemplateColumns: "repeat(9, minmax(0, 1fr))",
-gap: 10,
-},
-
-identityCommuneRow: {
-display: "flex",
-gap: 10,
-alignItems: "center",
-flexWrap: "wrap",
-},
-
-identityCommuneLabel: {
-fontSize: 12,
-fontWeight: 800,
-color: "#374151",
-textTransform: "uppercase",
-},
-
-inputInline: {
-minHeight: 32,
-borderRadius: 8,
-border: "1px solid #d1d5db",
-padding: "0 10px",
-background: "#fff",
-minWidth: 220,
-},
-
-compactStatusRow: {
-display: "flex",
-gap: 8,
-flexWrap: "wrap",
-alignItems: "center",
-padding: "2px 0",
-},
-
-alertBox: {
-border: "1px solid #fecaca",
-background: "#fff1f2",
-color: "#9f1239",
-borderRadius: 12,
-padding: 12,
-fontWeight: 700,
-},
-
-priorityBox: {
-border: "1px solid #dbeafe",
-background: "#f8fbff",
-borderRadius: 12,
-padding: 12,
-display: "grid",
-gap: 8,
-},
-
-priorityLabel: {
-fontSize: 12,
-fontWeight: 800,
-color: "#1e3a8a",
-textTransform: "uppercase",
 },
 
 priorityCard: {
@@ -7320,148 +6204,22 @@ cursor: "pointer",
 boxShadow: "0 10px 20px rgba(23, 55, 106, 0.18)",
 },
 
-shell: {
-display: "grid",
-gridTemplateColumns: "260px 1fr",
-gap: 16,
-alignItems: "start",
-},
-
-
-sidebarTitle: {
-fontSize: 16,
-fontWeight: 900,
-color: "#17376a",
-},
-
-sideButton: {
-minHeight: 42,
+anticipationButton: {
+minHeight: 44,
 borderRadius: 12,
-border: "1px solid #e5e7eb",
-background: "#fff",
-cursor: "pointer",
-display: "flex",
-alignItems: "center",
-justifyContent: "space-between",
-padding: "0 12px",
-fontWeight: 700,
-},
-
-sideButtonActive: {
-background: "#eef4ff",
-border: "1px solid #c7d7ff",
-},
-
-main: {
-display: "grid",
-gap: 16,
-},
-
-identityShell: {
-borderRadius: 24,
-border: "1px solid #dbe4f0",
-background: "linear-gradient(135deg, #ffffff 0%, #f7faff 100%)",
-boxShadow: "0 16px 40px rgba(15, 23, 42, 0.07)",
-padding: 18,
-display: "grid",
-gap: 14,
-},
-
-identityTopRow: {
-display: "flex",
-justifyContent: "space-between",
-gap: 16,
-alignItems: "flex-start",
-flexWrap: "wrap",
-},
-
-identityName: {
-fontSize: 22,
-fontWeight: 900,
-color: "#111827",
-},
-
-identityGrid: {
-display: "grid",
-gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-gap: 12,
-},
-
-identityInfoCard: {
-background: "#f8fafc",
-border: "1px solid #e2e8f0",
-borderRadius: 14,
-padding: 12,
-display: "grid",
-gap: 4,
-},
-
-identityInfoLabel: {
-fontSize: 11,
-color: "#64748b",
-fontWeight: 700,
-textTransform: "uppercase",
-letterSpacing: 0.3,
-},
-
-identityInfoValue: {
+border: "1px solid #cbd5e1",
+background: "#ffffff",
+color: "#17376a",
+padding: "0 14px",
 fontSize: 14,
 fontWeight: 800,
-color: "#0f172a",
-},
-
-card: {
-border: "1px solid #dfe7f1",
-borderRadius: 16,
-padding: 16,
-background: "#fff",
-display: "grid",
-gap: 14,
-boxShadow: "none",
-},
-cardTitle: {
-fontSize: 17,
-fontWeight: 900,
-color: "#17376a",
-},
-
-
-cardSubTitle: {
-fontSize: 13,
-fontWeight: 800,
-color: "#374151",
-},
-
-cardHeader: {
+cursor: "pointer",
+textAlign: "left",
+width: "100%",
+justifyContent: "flex-start",
 display: "flex",
-justifyContent: "space-between",
-gap: 12,
 alignItems: "center",
-flexWrap: "wrap",
-},
-
-situationBar: {
-borderRadius: 16,
-border: "1px solid #dbeafe",
-background: "#eff6ff",
-padding: 16,
-display: "grid",
-gap: 6,
-},
-
-situationMain: {
-fontSize: 20,
-fontWeight: 800,
-color: "#0f172a",
-},
-
-priorityStrip: {
-borderRadius: 16,
-border: "1px solid #e2e8f0",
-background: "#f8fafc",
-padding: 16,
-display: "grid",
-gap: 10,
+boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
 },
 
 copilotStatsGrid: {
@@ -7469,8 +6227,6 @@ display: "grid",
 gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
 gap: 12,
 },
-
-
 
 copilotStatBox: {
 background: "#f8fafc",
@@ -7489,25 +6245,74 @@ textTransform: "uppercase",
 },
 
 copilotStatValue: {
-fontSize: 20, // au lieu de 14-16
+fontSize: 20,
 fontWeight: 900,
 color: "#17376a",
 },
 
-grid2: {
+decisionHero: {
+border: "1px solid #dbeafe",
+background: "#eff6ff",
+borderRadius: 14,
+padding: 14,
 display: "grid",
-gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-gap: 12,
+gap: 6,
 },
 
-grid3: {
+decisionHeroLabel: {
+fontSize: 12,
+fontWeight: 800,
+color: "#64748b",
+textTransform: "uppercase",
+letterSpacing: "0.04em",
+},
+
+decisionHeroValue: {
+fontSize: 28,
+fontWeight: 900,
+color: "#17376a",
+lineHeight: 1.1,
+},
+
+decisionMetaCompactGrid: {
 display: "grid",
-gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-gap: 12,
+gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+gap: 10,
+},
+
+copilotSuggestionBox: {
+background: "#f8fafc",
+border: "1px dashed #e2e8f0",
+borderRadius: 12,
+padding: "12px 16px",
+display: "grid",
+gap: 8,
+},
+
+copilotSuggestionLabel: {
+fontSize: 12,
+color: "#64748b",
+fontWeight: 800,
+textTransform: "uppercase",
+letterSpacing: "0.04em",
+},
+
+copilotSuggestionMain: {
+fontSize: 28,
+fontWeight: 900,
+color: "#0f172a",
+lineHeight: 1.1,
+},
+
+copilotSuggestionAlt: {
+fontSize: 13,
+color: "#475569",
+fontWeight: 600,
 },
 
 fieldBlock: {
-gap: 4,
+display: "grid",
+gap: 8,
 marginBottom: 8,
 },
 
@@ -7526,11 +6331,14 @@ background: "#fff",
 },
 
 selectSmall: {
-minHeight: 36,
-borderRadius: 10,
-border: "1px solid #d1d5db",
-padding: "0 10px",
-background: "#fff",
+minHeight: 44,
+borderRadius: 14,
+border: "1px solid #d6dde8",
+padding: "0 14px",
+background: "#ffffff",
+width: "100%",
+fontSize: 15,
+color: "#0f172a",
 },
 
 input: {
@@ -7541,47 +6349,25 @@ padding: "0 10px",
 background: "#fff",
 },
 
-
 inputSmall: {
-  minHeight: 44,
-  borderRadius: 14,
-  border: "1px solid #d6dde8",
-  padding: "0 14px",
-  background: "#ffffff",
-  width: "100%",
-  fontSize: 15,
-  color: "#0f172a",
-  outline: "none",
-  transition: "all 0.15s ease",
+minHeight: 44,
+borderRadius: 14,
+border: "1px solid #d6dde8",
+padding: "0 14px",
+background: "#ffffff",
+width: "100%",
+fontSize: 15,
+color: "#0f172a",
+outline: "none",
 },
 
-inputSmallFocus: {
-  border: "1px solid #3b82f6",
-  boxShadow: "0 0 0 3px rgba(59,130,246,0.15)",
-},
-
-selectSmall: {
-  minHeight: 44,
-  borderRadius: 14,
-  border: "1px solid #d6dde8",
-  padding: "0 14px",
-  background: "#ffffff",
-  width: "100%",
-  fontSize: 15,
-  color: "#0f172a",
-},
-
-hdjTextarea: {
-  minHeight: 140,
-  borderRadius: 16,
-  border: "1px solid #d6dde8",
-  padding: 14,
-  background: "#ffffff",
-  resize: "vertical",
-  width: "100%",
-  fontSize: 15,
-  lineHeight: 1.45,
-  color: "#0f172a",
+textarea: {
+minHeight: 90,
+borderRadius: 12,
+border: "1px solid #d1d5db",
+padding: 12,
+background: "#fff",
+resize: "vertical",
 },
 
 textareaSmall: {
@@ -7595,19 +6381,28 @@ resize: "vertical",
 },
 
 primaryBtn: {
-  height: 42,
-  borderRadius: 12,
-  border: "none",
-  background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
-  color: "#fff",
-  fontWeight: 700,
-  padding: "0 16px",
-  cursor: "pointer",
-  boxShadow: "0 6px 14px rgba(37,99,235,0.25)",
-  transition: "all 0.15s ease",
+height: 42,
+borderRadius: 12,
+border: "none",
+background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+color: "#fff",
+fontWeight: 700,
+padding: "0 16px",
+cursor: "pointer",
+boxShadow: "0 6px 14px rgba(37,99,235,0.25)",
 },
 
-
+secondaryBtn: {
+height: 32,
+padding: "0 12px",
+borderRadius: 8,
+border: "1px solid #e2e8f0",
+background: "#f8fafc",
+color: "#334155",
+fontWeight: 600,
+fontSize: 13,
+cursor: "pointer",
+},
 
 ghostBtn: {
 minHeight: 34,
@@ -7620,143 +6415,10 @@ cursor: "pointer",
 fontWeight: 700,
 },
 
-stack: {
-display: "grid",
-gap: 12,
-},
-
-rowWrap: {
-  display: "flex",
-  gap: 6,
-  flexWrap: "wrap",
-  alignItems: "center",
-},
-
 smallNote: {
-  fontSize: 12,
-  color: "#94a3b8",
-  fontStyle: "italic",
-},
-
-sectionBanner: {
-border: "1px solid #dbeafe",
-background: "#eff6ff",
-borderRadius: 14,
-padding: 12,
-display: "grid",
-gap: 8,
-},
-
-infoCard: {
-background: "#f8fafc",
-border: "1px solid #e4ebf3",
-borderRadius: 16,
-padding: 16,
-display: "grid",
-gap: 10,
-},
-
-infoMiniCard: {
-  background: "#ffffff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  padding: "10px 12px",
-  display: "grid",
-  gap: 4,
-  minHeight: 64,
-},
-
-
-infoMiniValue: {
-  fontSize: 16,
-  fontWeight: 700,
-  color: "#0f172a",
-  lineHeight: 1.2,
-},
-
-
-infoLabel: {
-  fontSize: 11,
-  color: "#64748b",
-  fontWeight: 800,
-  textTransform: "uppercase",
-  letterSpacing: "0.03em",
-},
-
-summaryBox: {
-border: "1px solid #bfdbfe",
-borderRadius: 14,
-padding: 14,
-background: "#f8fbff",
-display: "grid",
-gap: 6,
-},
-
-historyBox: {
-border: "1px dashed #d1d5db",
-borderRadius: 12,
-padding: 12,
-display: "grid",
-gap: 6,
-},
-
-actionPill: {
-minHeight: 32,
-borderRadius: 999,
-border: "1px solid #d1d5db",
-background: "#fff",
-padding: "0 12px",
-cursor: "pointer",
-fontWeight: 700,
-},
-
-postit: {
-border: "1px solid #fcd34d",
-background: "#fef9c3",
-borderRadius: 14,
-padding: 14,
-display: "grid",
-gap: 10,
-},
-
-postitTitle: {
-fontWeight: 900,
-color: "#111827",
-},
-
-exchangeCard: {
-border: "1px solid #e5e7eb",
-borderRadius: 14,
-padding: 14,
-display: "grid",
-gap: 8,
-background: "#fafafa",
-},
-
-exchangeHead: {
-display: "flex",
-justifyContent: "space-between",
-gap: 12,
-alignItems: "center",
-flexWrap: "wrap",
-},
-
-categoryCard: {
-border: "1px solid #e5e7eb",
-borderRadius: 14,
-padding: 12,
-display: "grid",
-gap: 10,
-},
-
-categoryTitle: {
-border: "none",
-background: "transparent",
-textAlign: "left",
-fontWeight: 900,
-color: "#111827",
-cursor: "pointer",
-padding: 0,
+fontSize: 12,
+color: "#94a3b8",
+fontStyle: "italic",
 },
 
 keywordWrap: {
@@ -7778,37 +6440,17 @@ fontWeight: 700,
 },
 
 keywordChipActive: {
-  background: "#e0f2fe",
-  borderColor: "#7dd3fc",
-  color: "#0369a1",
+background: "#e0f2fe",
+borderColor: "#7dd3fc",
+color: "#0369a1",
 },
 
-formRow: {
-border: "1px solid #e5e7eb",
-borderRadius: 14,
-padding: 12,
-display: "flex",
-justifyContent: "space-between",
-gap: 12,
-alignItems: "center",
-flexWrap: "wrap",
-background: "#fff",
-},
-
-keywordChipMuted: {
-  height: 22,
-  borderRadius: 999,
-  border: "1px dashed #e2e8f0",
-  background: "#ffffff",
-  color: "#64748b",
-  padding: "0 6px",
-  cursor: "pointer",
-  fontSize: 10,
-},
-
-formName: {
+groupTitle: {
+fontSize: 12,
 fontWeight: 800,
-color: "#111827",
+color: "#0f172a",
+textTransform: "capitalize",
+marginBottom: 2,
 },
 
 badge: {
@@ -7824,65 +6466,6 @@ background: "#eef2ff",
 color: "#3730a3",
 border: "1px solid #c7d2fe",
 },
-
-timelineRow: {
-display: "flex",
-gap: 18,
-flexWrap: "wrap",
-alignItems: "flex-start",
-},
-
-timelineItem: {
-display: "grid",
-gap: 6,
-justifyItems: "center",
-minWidth: 80,
-},
-
-timelineDot: {
-width: 18,
-height: 18,
-borderRadius: "50%",
-},
-
-timelineLabel: {
-fontSize: 12,
-color: "#374151",
-textAlign: "center",
-},
-
-orientationMain: {
-fontSize: 18,
-fontWeight: 800,
-color: "#0f172a",
-},
-
-resourceCard: {
-border: "1px solid #e5e7eb",
-borderRadius: 14,
-padding: 14,
-display: "grid",
-gap: 8,
-background: "#fafafa",
-},
-
-hdjBox: {
-border: "1px solid #c7d7ff",
-borderRadius: 16,
-padding: 14,
-display: "grid",
-gap: 12,
-background: "#f8fbff",
-},
-
-groupTitle: {
-  fontSize: 12,
-  fontWeight: 800,
-  color: "#0f172a",
-  textTransform: "capitalize",
-  marginBottom: 2,
-},
-
 
 orientationChipWrap: {
 display: "flex",
@@ -7908,6 +6491,24 @@ color: "#fff",
 border: "1px solid #1d4ed8",
 },
 
+orientationMain: {
+fontSize: 18,
+fontWeight: 800,
+color: "#0f172a",
+},
+
+orientationPriorityBox: {
+marginTop: 8,
+marginBottom: 10,
+padding: "10px 12px",
+borderRadius: 10,
+background: "#f0f9ff",
+border: "1px solid #bae6fd",
+color: "#075985",
+fontWeight: 700,
+fontSize: 13,
+},
+
 previewRow: {
 border: "1px solid #e5e7eb",
 borderRadius: 12,
@@ -7920,8 +6521,498 @@ flexWrap: "wrap",
 background: "#fff",
 },
 
+previewRowHighlight: {
+border: "2px solid #3b82f6",
+background: "#eff6ff",
+},
+
+previewTopRow: {
+display: "flex",
+alignItems: "center",
+justifyContent: "space-between",
+gap: 8,
+flexWrap: "wrap",
+},
+
 previewTitle: {
 fontWeight: 800,
 color: "#111827",
+},
+
+linkBtn: {
+display: "inline-flex",
+alignItems: "center",
+justifyContent: "center",
+minHeight: 34,
+borderRadius: 10,
+border: "1px solid #dbeafe",
+background: "#eff6ff",
+color: "#1d4ed8",
+padding: "0 12px",
+textDecoration: "none",
+fontWeight: 700,
+fontSize: 12,
+},
+
+resourceCard: {
+border: "1px solid #e5e7eb",
+borderRadius: 14,
+padding: 14,
+display: "grid",
+gap: 8,
+background: "#fafafa",
+},
+
+exchangeHead: {
+display: "flex",
+justifyContent: "space-between",
+gap: 12,
+alignItems: "center",
+flexWrap: "wrap",
+},
+
+postitTitle: {
+fontWeight: 900,
+color: "#111827",
+},
+
+workflowCard: {
+border: "1px solid #e2e8f0",
+borderRadius: 16,
+background: "#ffffff",
+padding: 14,
+display: "grid",
+gap: 12,
+},
+
+workflowHeader: {
+display: "flex",
+justifyContent: "space-between",
+gap: 12,
+alignItems: "center",
+flexWrap: "wrap",
+},
+
+workflowTitle: {
+fontSize: 15,
+fontWeight: 800,
+color: "#0f172a",
+},
+
+workflowSentence: {
+fontSize: 13,
+lineHeight: 1.45,
+color: "#334155",
+fontWeight: 600,
+},
+
+workflowActions: {
+display: "flex",
+gap: 8,
+flexWrap: "wrap",
+},
+
+motifInline: {
+fontSize: 12,
+color: "#6b7280",
+marginTop: 2,
+},
+
+waitingBtnActive: {
+background: "#fef3c7",
+borderColor: "#f59e0b",
+color: "#92400e",
+fontWeight: 800,
+},
+
+acceptedBtnActive: {
+background: "#dcfce7",
+borderColor: "#22c55e",
+color: "#166534",
+fontWeight: 800,
+},
+
+refusalBtnActive: {
+background: "#fee2e2",
+borderColor: "#dc2626",
+color: "#991b1b",
+fontWeight: 800,
+},
+
+abandonBtnActive: {
+background: "#e5e7eb",
+borderColor: "#94a3b8",
+color: "#334155",
+fontWeight: 800,
+},
+
+modalOverlay: {
+position: "fixed",
+top: 0,
+left: 0,
+right: 0,
+bottom: 0,
+backgroundColor: "rgba(0,0,0,0.4)",
+display: "flex",
+alignItems: "center",
+justifyContent: "center",
+zIndex: 9999,
+},
+
+modal: {
+background: "#fff",
+padding: 20,
+borderRadius: 8,
+minWidth: 300,
+boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+display: "grid",
+gap: 12,
+},
+
+modalTitle: {
+fontSize: 16,
+fontWeight: 800,
+color: "#111827",
+},
+
+modalActions: {
+display: "flex",
+justifyContent: "flex-end",
+gap: 8,
+},
+
+summaryBox: {
+border: "1px solid #bfdbfe",
+borderRadius: 14,
+padding: 14,
+background: "#f8fbff",
+display: "grid",
+gap: 6,
+},
+
+historyBox: {
+border: "1px dashed #d1d5db",
+borderRadius: 12,
+padding: 12,
+display: "grid",
+gap: 6,
+},
+
+historyBlock: {
+display: "grid",
+gap: 8,
+marginBottom: 8,
+},
+
+historyTitle: {
+fontSize: 12,
+fontWeight: 800,
+color: "#475569",
+textTransform: "uppercase",
+},
+
+historyList: {
+display: "grid",
+gap: 6,
+},
+
+historyItem: {
+padding: "8px 10px",
+borderRadius: 10,
+background: "#f8fafc",
+border: "1px solid #e2e8f0",
+},
+
+historyItemLabel: {
+fontSize: 12,
+fontWeight: 700,
+color: "#0f172a",
+},
+
+historyItemReason: {
+fontSize: 12,
+color: "#64748b",
+},
+
+historyItemMeta: {
+fontSize: 11,
+color: "#94a3b8",
+marginTop: 4,
+},
+
+historyToggle: {
+fontSize: 12,
+fontWeight: 700,
+color: "#1d4ed8",
+cursor: "pointer",
+},
+
+inlinePostit: {
+width: "100%",
+minHeight: 150,
+padding: 16,
+borderRadius: 6,
+display: "flex",
+flexDirection: "column",
+justifyContent: "space-between",
+boxShadow: "2px 2px 6px rgba(0,0,0,0.1)",
+gap: 10,
+},
+
+postitHeader: {
+display: "flex",
+justifyContent: "space-between",
+alignItems: "center",
+gap: 8,
+},
+
+postitActionBtn: {
+width: 28,
+height: 28,
+borderRadius: "50%",
+border: "none",
+background: "rgba(255,255,255,0.7)",
+cursor: "pointer",
+fontWeight: 900,
+},
+
+postitText: {
+fontSize: 16,
+lineHeight: 1.35,
+fontWeight: 700,
+color: "#1f2937",
+},
+
+postitMeta: {
+fontSize: 12,
+color: "#6b7280",
+},
+
+postitChip: {
+display: "inline-flex",
+alignItems: "center",
+width: "fit-content",
+minHeight: 24,
+padding: "0 8px",
+borderRadius: 999,
+background: "rgba(255,255,255,0.65)",
+fontSize: 11,
+fontWeight: 800,
+},
+
+postitNotifDot: {
+width: 8,
+height: 8,
+borderRadius: "50%",
+background: "#ef4444",
+display: "inline-block",
+},
+
+postitFab: {
+position: "fixed",
+right: 20,
+bottom: 20,
+zIndex: 10002,
+width: 44,
+height: 44,
+borderRadius: "50%",
+border: "none",
+background: "#facc15",
+color: "#111827",
+fontSize: 24,
+fontWeight: 900,
+cursor: "pointer",
+boxShadow: "0 8px 20px rgba(0,0,0,0.18)",
+},
+
+postitComposer: {
+position: "fixed",
+right: 20,
+bottom: 76,
+width: 280,
+zIndex: 10003,
+background: "#ffffff",
+border: "1px solid #e5e7eb",
+borderRadius: 14,
+padding: 12,
+display: "grid",
+gap: 10,
+boxShadow: "0 16px 40px rgba(0,0,0,0.18)",
+},
+
+formRow: {
+border: "1px solid #e5e7eb",
+borderRadius: 14,
+padding: 12,
+display: "flex",
+justifyContent: "space-between",
+gap: 12,
+alignItems: "center",
+flexWrap: "wrap",
+background: "#fff",
+},
+
+hdjFormHeader: {
+display: "flex",
+justifyContent: "space-between",
+alignItems: "flex-start",
+gap: 12,
+flexWrap: "wrap",
+},
+
+hdjHero: {
+display: "flex",
+justifyContent: "space-between",
+alignItems: "center",
+gap: 16,
+padding: "16px 18px",
+borderRadius: 16,
+background: "linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%)",
+border: "1px solid #dbeafe",
+},
+
+hdjHeroMain: {
+display: "grid",
+gap: 4,
+},
+
+hdjHeroTitle: {
+fontSize: 22,
+fontWeight: 900,
+color: "#17376a",
+},
+
+hdjHeroMeta: {
+fontSize: 13,
+color: "#64748b",
+fontWeight: 600,
+},
+
+hdjHeroBadge: {
+display: "inline-flex",
+alignItems: "center",
+justifyContent: "center",
+minHeight: 32,
+padding: "0 12px",
+borderRadius: 999,
+background: "#dbeafe",
+color: "#1d4ed8",
+fontSize: 12,
+fontWeight: 800,
+whiteSpace: "nowrap",
+},
+
+hdjSectionBox: {
+border: "1px solid #e5e7eb",
+background: "linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)",
+borderRadius: 18,
+padding: 20,
+display: "grid",
+gap: 18,
+boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
+},
+
+hdjSectionTitle: {
+fontSize: 16,
+fontWeight: 900,
+color: "#17376a",
+marginBottom: 2,
+},
+
+hdjFieldsGrid: {
+display: "grid",
+gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+gap: 18,
+alignItems: "start",
+},
+
+hdjActsGrid: {
+display: "grid",
+gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+gap: 12,
+},
+
+hdjActsCategoryCard: {
+border: "1px solid #e2e8f0",
+borderRadius: 12,
+padding: 12,
+backgroundColor: "#f8fafc",
+display: "flex",
+flexDirection: "column",
+gap: 8,
+},
+
+hdjActsGroupTitle: {
+fontSize: 13,
+fontWeight: 700,
+color: "#1e293b",
+marginBottom: 4,
+textTransform: "capitalize",
+},
+
+hdjActChip: {
+height: 28,
+borderRadius: 999,
+border: "1px solid #e2e8f0",
+background: "#f8fafc",
+color: "#334155",
+padding: "0 10px",
+cursor: "pointer",
+fontSize: 11,
+fontWeight: 600,
+},
+
+hdjActChipActive: {
+background: "#dbeafe",
+borderColor: "#93c5fd",
+color: "#1e3a8a",
+},
+
+hdjSelectedActsBox: {
+marginTop: 12,
+padding: 10,
+borderRadius: 10,
+backgroundColor: "#eef2ff",
+border: "1px solid #c7d2fe",
+},
+
+hdjTextarea: {
+minHeight: 140,
+borderRadius: 16,
+border: "1px solid #d6dde8",
+padding: 14,
+background: "#ffffff",
+resize: "vertical",
+width: "100%",
+fontSize: 15,
+lineHeight: 1.45,
+color: "#0f172a",
+},
+
+hdjTextareaSmall: {
+minHeight: 84,
+borderRadius: 10,
+border: "1px solid #d1d5db",
+padding: 10,
+background: "#fff",
+resize: "vertical",
+width: "100%",
+},
+
+summaryBoxLight: {
+border: "1px solid #e2e8f0",
+background: "#f8fafc",
+borderRadius: 12,
+padding: 10,
+fontSize: 12,
+color: "#475569",
+},
+
+hdjFooterBar: {
+display: "flex",
+justifyContent: "space-between",
+alignItems: "center",
+gap: 12,
+flexWrap: "wrap",
 },
 };

@@ -1497,10 +1497,67 @@ updatedAt: new Date().toISOString(),
 );
 }, []);
 
+
+
+
+
 const resetResourcesToDefault = useCallback(() => {
 setResourcesState(resourcesCotentin);
 }, []);
 
+
+const resetAllPatientsToQualifier = useCallback(() => {
+  setPatientsState((prev) =>
+    prev.map((patient, index) =>
+      buildPatient(
+        normalizePatientSex(
+          {
+            ...patient,
+
+            // Remise à zéro du statut parcours
+            parcoursStatus: "a_qualifier",
+            status: "a_qualifier",
+            qualificationStatus: "a_qualifier",
+
+            // Remise à zéro du pilotage
+            nextAction: null,
+            actionPlan: [],
+            resourceFollowUp: [],
+            copilotState: null,
+            copilotSummary: null,
+
+            // Remise à zéro des éléments de suivi
+            incidentHistory: [],
+            spiritNotes: [],
+            dynamicNeeds: [],
+            dynamicCategories: [],
+            dynamicBlockages: [],
+            hdjHistory: [],
+
+            // Remise à zéro des éléments d'orientation / solution
+            orientation: "",
+            solutionLabel: "",
+            dateSortiePrevue: "",
+            hdjPlan: null,
+            decisionLog: [],
+            dischargePlanning: {},
+
+            updatedAt: new Date().toISOString(),
+          },
+          index
+        )
+      )
+    )
+  );
+
+  setIncidentsState([]);
+
+  try {
+    window.localStorage.removeItem(INCIDENTS_STORAGE_KEY);
+  } catch (error) {
+    console.error("Erreur reset localStorage", error);
+  }
+}, []);
 const value = useMemo(
 () => ({
 patients: patientsState,
@@ -1529,6 +1586,7 @@ recomputeDerivedData,
 toggleManualVulnerabilityProfile,
 deletePatient,
 clearAllPatients,
+resetAllPatientsToQualifier,
 
 addActionsToPatient,
 updateAction,

@@ -807,7 +807,7 @@ export default function Dashboard({ user, onLogout }) {
 const [view, setView] = useState("dashboard");
 
 const simulation = usePatientSimulation();
-const { patients, updatePatient } = simulation;
+const { patients, updatePatient, resetAllPatientsToQualifier } = simulation;
 const createIncidentForPatient = simulation.createIncidentForPatient;
 const incidents = simulation.incidents || [];
 
@@ -878,6 +878,20 @@ prev.includes(service)
 
 function resetServices() {
 setSelectedServices([]);
+}
+
+function handleResetPatients() {
+  const confirmed = window.confirm(
+    "Remettre tous les patients à 'À qualifier' ?"
+  );
+
+  if (!confirmed) return;
+
+  if (typeof resetAllPatientsToQualifier === "function") {
+    resetAllPatientsToQualifier();
+    setActiveFilter("all");
+    setSelectedServices([]);
+  }
 }
 
 function openPatient(patientId, target = "patient") {
@@ -1643,31 +1657,43 @@ user={user}
 style={{
 maxWidth: 1480,
 width: "100%",
+minWidth: 0,
 margin: "0 auto",
 display: "grid",
 gap: 16,
 }}
 >
-<div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-{user?.role === "DIRECTION" && (
-<button
-type="button"
-className="app-btn app-btn-ghost"
-onClick={() => setView("admin")}
->
-Gestion des comptes
-</button>
-)}
+<div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
 
-{view === "admin" && (
-<button
-type="button"
-className="app-btn app-btn-ghost"
-onClick={() => setView("dashboard")}
->
-Retour dashboard
-</button>
-)}
+  {/* 👉 BOUTON RESET */}
+  <button
+    type="button"
+    className="app-btn app-btn-ghost"
+    onClick={handleResetPatients}
+  >
+    Reset patients
+  </button>
+
+  {user?.role === "DIRECTION" && (
+    <button
+      type="button"
+      className="app-btn app-btn-ghost"
+      onClick={() => setView("admin")}
+    >
+      Gestion des comptes
+    </button>
+  )}
+
+  {view === "admin" && (
+    <button
+      type="button"
+      className="app-btn app-btn-ghost"
+      onClick={() => setView("dashboard")}
+    >
+      Retour dashboard
+    </button>
+  )}
+
 </div>
 
 {view === "admin" ? (
@@ -1676,7 +1702,7 @@ Retour dashboard
 <>
 <section className="app-card" style={headerCard}>
 <div style={toolbarGrid}>
-<div style={{ display: "grid", gap: 6 }}>
+<div style={{ display: "grid", gap: 6, width: "100%", minWidth: 0 }}>
 <span style={sectionEyebrow}>Vue</span>
 <div style={{ display: "flex", gap: 6 }}>
 <button
@@ -1703,7 +1729,7 @@ Gestion des lits
 </div>
 </div>
 
-<div style={{ display: "grid", gap: 6 }}>
+<div style={{ display: "flex", gap: 6, flexWrap: "wrap", width: "100%", minWidth: 0 }}>
 <span style={sectionEyebrow}>Services</span>
 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
 <button
@@ -1925,15 +1951,112 @@ blocage dominant
 </span>
 </div>
 
-<div style={{ width: "100%", overflowX: "auto" }}>
-  <div style={{ display: "grid", gap: 8, minWidth: 1260 }}>
-    {directionRows.map((row) => (
-      <div key={row.service} style={directionRowCard}>
-        ...
+
+<div style={{ display: "grid", gap: 12 }}>
+  {directionRows.map((row) => (
+    
+    <div style={{ display: "grid", gap: 12 }}>
+  {directionRows.map((row) => (
+    <div key={row.service} style={directionRowCard}>
+      
+      {/* HEADER */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.4fr auto",
+          gap: 12,
+          alignItems: "start",
+        }}
+      >
+        <div style={{ display: "grid", gap: 4 }}>
+          <span style={directionMetricLabel}>Service</span>
+          <strong style={{ fontSize: 16, color: "#17376a" }}>
+            {row.service}
+          </strong>
+          <span style={statusBadgeStyle(row.risk.color)}>
+            {row.risk.label}
+          </span>
+        </div>
+
+        <div style={{ textAlign: "right", display: "grid", gap: 2 }}>
+          <span style={directionMetricLabel}>Occupation</span>
+          <div style={{ fontSize: 20, fontWeight: 900 }}>
+            {row.occupancyLabel}
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b" }}>
+            {row.occupancyRate}%
+          </div>
+        </div>
       </div>
-    ))}
+
+      {/* METRICS */}
+      <div
+  style={{
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: 12,
+  }}
+>
+  <div style={{ display: "grid", gap: 2 }}>
+    <span style={directionMetricLabel}>Lits dispo</span>
+    <strong style={{ fontSize: 16 }}>{row.availableBeds}</strong>
+  </div>
+
+  <div style={{ display: "grid", gap: 2 }}>
+    <span style={directionMetricLabel}>Complexes</span>
+    <strong style={{ fontSize: 16 }}>{row.complex}</strong>
+  </div>
+
+  <div style={{ display: "grid", gap: 2 }}>
+    <span style={directionMetricLabel}>Sort Med</span>
+    <strong style={{ fontSize: 16 }}>{row.medical}</strong>
+  </div>
+
+  <div style={{ display: "grid", gap: 2 }}>
+    <span style={directionMetricLabel}>Jours évitables</span>
+    <strong style={{ fontSize: 16 }}>{row.avoidableDays}</strong>
+  </div>
+
+  <div style={{ display: "grid", gap: 2 }}>
+    <span style={directionMetricLabel}>Récupérables</span>
+    <strong style={{ fontSize: 16 }}>{row.recoverable}</strong>
+  </div>
+
+  <div style={{ display: "grid", gap: 2 }}>
+    <span style={directionMetricLabel}>DMS ≥ J+10</span>
+    <strong style={{ fontSize: 16 }}>{row.dmsExceeded}</strong>
+  </div>
+
+  <div style={{ display: "grid", gap: 2 }}>
+    <span style={directionMetricLabel}>Date cible</span>
+    <strong style={{ fontSize: 16 }}>{row.targetDefined}</strong>
+  </div>
+
+  <div style={{ display: "grid", gap: 2 }}>
+    <span style={directionMetricLabel}>Vulnérables</span>
+    <strong style={{ fontSize: 16 }}>{row.vulnerable}</strong>
   </div>
 </div>
+
+      {/* FOOTER */}
+      <div
+  style={{
+    borderTop: "1px solid #eef2f7",
+    paddingTop: 8,
+    display: "grid",
+    gap: 2,
+  }}
+>
+  <span style={directionMetricLabel}>Blocage dominant</span>
+  <strong style={{ fontSize: 16 }}>{row.dominantBlockage}</strong>
+</div>
+
+    </div>
+  ))}
+</div>
+  ))}
+</div>
+   
 </section>
 
 <section className="app-card" style={directionCard}>
@@ -2883,7 +3006,7 @@ style={bedFormInput}
 />
 </div>
 
-<div style={{ display: "grid", gap: 8 }}>
+<div style={{ display: "grid", gap: 8, width: "100%", minWidth: 0 }}>
 <strong style={{ fontSize: 12, color: "#17376a" }}>
 Signature
 </strong>
@@ -2924,7 +3047,7 @@ Effacer la signature
 </div>
 </div>
 
-<div style={{ display: "grid", gap: 8 }}>
+<div style={{ display: "grid", gap: 8, width: "100%", minWidth: 0 }}>
 <strong style={{ fontSize: 12, color: "#17376a" }}>
 Photo patient
 </strong>
@@ -3014,7 +3137,7 @@ border: "1px solid #d6deea",
 ) : null}
 </div>
 
-<div style={{ display: "grid", gap: 8 }}>
+<div style={{ display: "grid", gap: 8, width: "100%", minWidth: 0 }}>
 <strong style={{ fontSize: 12, color: "#17376a" }}>
 Commentaire
 </strong>
@@ -3303,6 +3426,16 @@ background: "#fff",
 boxShadow: "0 10px 24px rgba(15,23,42,.06)",
 };
 
+
+const toolbarGrid = {
+display: "grid",
+gridTemplateColumns: "1fr 1fr",
+gap: 14,
+alignItems: "start",
+width: "100%",
+minWidth: 0,
+};
+
 const listCard = {
 padding: 10,
 display: "grid",
@@ -3312,12 +3445,7 @@ background: "#fff",
 boxShadow: "0 10px 24px rgba(15,23,42,.06)",
 };
 
-const toolbarGrid = {
-display: "grid",
-gridTemplateColumns: "auto 1fr",
-gap: 14,
-alignItems: "start",
-};
+
 
 const summaryStrip = {
 display: "flex",
@@ -3375,29 +3503,28 @@ borderTop: "1px solid #eef2f7",
 
 const directionRowCard = {
   display: "grid",
-  gridTemplateColumns:
-    "minmax(140px, 1.2fr) repeat(9, minmax(90px, 1fr)) minmax(160px, 1.4fr)",
   gap: 10,
-  alignItems: "center",
   border: "1px solid #e5ebf4",
-  borderRadius: 14,
+  borderRadius: 16,
   padding: 12,
   background: "#fff",
   boxShadow: "0 4px 12px rgba(15,23,42,.04)",
-  minWidth: 1260,
 };
 
 const directionMetric = {
-display: "grid",
-gap: 2,
+  display: "grid",
+  gap: 2,
+  minWidth: 0,
 };
 
 const directionMetricLabel = {
-fontSize: 11,
-color: "#64748b",
-textTransform: "uppercase",
-fontWeight: 800,
+  fontSize: 11,
+  color: "#64748b",
+  textTransform: "uppercase",
+  fontWeight: 800,
+  lineHeight: 1.1,
 };
+
 
 const directionMetricSub = {
 fontSize: 11,

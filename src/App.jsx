@@ -8,6 +8,7 @@ import CopiloteView from "./copilote/CopiloteView";
 import UnifiedDemoWorkspace from "./components/UnifiedDemoWorkspace";
 import CelluleCriseView from "./CelluleCriseView";
 import IncidentView from "./IncidentViewTemp";
+import "./app.css";
 
 function RequireAuth({ user, children }) {
   if (!user) {

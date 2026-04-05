@@ -8,6 +8,7 @@ import { usePatientSimulation } from "./context/PatientSimulationContext";
 import "./PatientView.css";
 import PatientInsightsPanel from "./components/PatientInsightsPanel";
 import { getPatientContacts } from "./domain/patient/patientContacts";
+import { medecins, ide, as, pilotes } from "./data/users";
 
 const REPORT_PREFIX = "carabbas_staff_report_";
 const REPORT_HISTORY_PREFIX = "carabbas_staff_report_history_";
@@ -1069,7 +1070,101 @@ function VulnerabilityCard({ patient }) {
         <div className="pv-item"><div className="pv-label">Dernier évaluateur</div><div className="pv-value">{safe(lastEvaluator)}</div></div>
         <div className="pv-item"><div className="pv-label">Dernière mise à jour</div><div className="pv-value">{formatShortDateTime(updatedAt)}</div></div>
       </div>
-      <PatientInsightsPanel patient={patient} />
+      
+<div style={{ marginTop: 16 }}>
+<div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>
+Analyse copilote
+</div>
+
+<div
+style={{
+marginBottom: 12,
+fontSize: 14,
+fontWeight: 600,
+color: "#334155",
+}}
+>
+👉 Situation à risque de sortie non sécurisée
+</div>
+
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "1fr 1fr 1fr",
+gap: 14,
+}}
+>
+
+{/* FREINS */}
+<div style={{
+borderRadius: 16,
+padding: 14,
+background: "#fff7f7",
+border: "1px solid #f5c2c0"
+}}>
+<div style={{ fontWeight: 800, marginBottom: 8 }}>🚫 Freins</div>
+
+{safeArray(patient?.derivedFreins).length ? (
+safeArray(patient?.derivedFreins).map((f, i) => (
+<div key={i} style={{ fontSize: 13, marginBottom: 4 }}>
+{f.label || f}
+</div>
+))
+) : (
+<div style={{ fontSize: 13, color: "#7f1d1d" }}>
+Aucun frein identifié
+</div>
+)}
+</div>
+
+{/* CONSÉQUENCES */}
+<div style={{
+borderRadius: 16,
+padding: 14,
+background: "#fff8e8",
+border: "1px solid #f6df9b"
+}}>
+<div style={{ fontWeight: 800, marginBottom: 8 }}>⚠️ Conséquences</div>
+
+{safeArray(patient?.derivedConsequences).length ? (
+safeArray(patient?.derivedConsequences).map((c, i) => (
+<div key={i} style={{ fontSize: 13, marginBottom: 4 }}>
+{c.label || c}
+</div>
+))
+) : (
+<div style={{ fontSize: 13, color: "#92400e" }}>
+Aucune conséquence
+</div>
+)}
+</div>
+
+{/* ACTIONS */}
+<div style={{
+borderRadius: 16,
+padding: 14,
+background: "#f0fdf4",
+border: "1px solid #bbf7d0"
+}}>
+<div style={{ fontWeight: 800, marginBottom: 8 }}>🎯 Actions</div>
+
+{safeArray(patient?.derivedOrientations).length ? (
+safeArray(patient?.derivedOrientations).map((o, i) => (
+<div key={i} style={{ fontSize: 13, marginBottom: 4 }}>
+{o.label || o}
+</div>
+))
+) : (
+<div style={{ fontSize: 13, color: "#166534" }}>
+Aucune action proposée
+</div>
+)}
+</div>
+
+</div>
+</div>
+
+
       {criteria.length === 0 ? (
         <div className="pv-list-item pv-muted">Aucun critère de vulnérabilité enregistré.</div>
       ) : (
@@ -1884,134 +1979,211 @@ export default function PatientView() {
           </aside>
 
           <main className="pv-main" style={{ display: "grid", gap: 18 }}>
-            {activeSection === "synthese" ? (
+            
+{activeSection === "synthese" ? (
+<div className="pv-section-anchor">
+<SectionCard
+title="Recueil de données"
+subtitle="Base factuelle utilisée pour décider de la suite du parcours et alimenter le copilote."
+style={{
+background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
+border: "1px solid #dbe4f0",
+}}
+>
+<div
+style={{
+marginBottom: 14,
+padding: "12px 14px",
+borderRadius: 14,
+background: "#eef4ff",
+border: "1px solid #d6e4ff",
+color: "#17376a",
+fontSize: 13,
+fontWeight: 600,
+}}
+>
+Ces informations constituent le socle de décision pour la sortie, les vigilances et les actions à transmettre au copilote.
+</div>
+
+<InfoGrid columns={3} items={recueilItems} />
+</SectionCard>
+
+<SectionCard
+title="Ce que le recueil fait ressortir"
+subtitle="Lecture rapide des informations importantes pour orienter la suite."
+style={{ background: "linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)" }}
+>
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "1.35fr 1fr 1fr",
+gap: 14,
+marginBottom: 12,
+}}
+>
+<div
+style={{
+borderRadius: 20,
+padding: 18,
+background: "linear-gradient(135deg, #17376a 0%, #2452a4 100%)",
+color: "#ffffff",
+boxShadow: "0 14px 28px rgba(23, 55, 106, 0.22)",
+}}
+>
+<div style={{ fontSize: 12, opacity: 0.82, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".05em" }}>
+Sujet prioritaire
+</div>
+<div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.15, marginBottom: 10 }}>
+{getPatientSubject(patient)}
+</div>
+<div style={{ fontSize: 14, lineHeight: 1.6, opacity: 0.95 }}>
+{report.infos || autoSummary.situation || "Situation à qualifier"}
+</div>
+
+<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+<span style={{ padding: "6px 10px", borderRadius: 999, background: "rgba(255,255,255,0.14)", fontSize: 12, fontWeight: 700 }}>
+{safe(patient.service)}
+</span>
+<span style={{ padding: "6px 10px", borderRadius: 999, background: "rgba(255,255,255,0.14)", fontSize: 12, fontWeight: 700 }}>
+J+{los}
+</span>
+<span style={{ padding: "6px 10px", borderRadius: 999, background: "rgba(255,255,255,0.14)", fontSize: 12, fontWeight: 700 }}>
+{priority.label}
+</span>
+</div>
+</div>
+
+<div
+style={{
+borderRadius: 18,
+padding: 16,
+border: "1px solid #f3c7c1",
+background: "#fff7f7",
+}}
+>
+<div className="pv-label">Blocage principal</div>
+<div style={{ fontSize: 20, fontWeight: 800, color: "#991b1b", marginTop: 6 }}>
+{getBlockageLabel(patient)}
+</div>
+<div style={{ fontSize: 12, color: "#7f1d1d", marginTop: 6 }}>
+Point à lever pour avancer
+</div>
+</div>
+
+<div
+style={{
+borderRadius: 18,
+padding: 16,
+border: "1px solid #f6df9b",
+background: "#fff8e8",
+}}
+>
+<div className="pv-label">Date cible de sortie</div>
+<div style={{ fontSize: 20, fontWeight: 800, color: "#a16207", marginTop: 6 }}>
+{targetDate ? formatShortDate(targetDate) : "À poser"}
+</div>
+<div style={{ fontSize: 12, color: "#92400e", marginTop: 6 }}>
+{targetDate ? targetStatus.label : "Décision attendue"}
+</div>
+</div>
+</div>
+
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+gap: 12,
+}}
+>
+<div className="pv-item">
+<div className="pv-label">Solution / orientation</div>
+<div className="pv-value">{getSolutionLabel(patient)}</div>
+</div>
+
+<div className="pv-item">
+<div className="pv-label">Statut décision</div>
+<div className="pv-value">{decisionStatus.label}</div>
+</div>
+</div>
+</SectionCard>
+
+<SectionCard
+title="Décision et transmission au copilote"
+subtitle="Ce qui doit être acté puis repris dans le copilote."
+className="pv-card--nested"
+>
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+gap: 12,
+marginBottom: 14,
+}}
+>
+<div className="pv-item">
+<div className="pv-label">Objectif</div>
+<div className="pv-value">{report.objectifs || autoSummary.objectif || "Non renseigné"}</div>
+</div>
+
+<div className="pv-item">
+<div className="pv-label">Décision attendue</div>
+<div className="pv-value">{report.actions || autoSummary.decision || "Décision à poser"}</div>
+</div>
+
+<div className="pv-item">
+<div className="pv-label">Vigilance</div>
+<div className="pv-value">{report.vigilances || "Non renseignée"}</div>
+</div>
+</div>
+
+<div
+style={{
+borderRadius: 14,
+padding: "12px 14px",
+background: "#f8fafc",
+border: "1px solid #e2e8f0",
+fontSize: 13,
+color: "#334155",
+}}
+>
+<strong>Logique de la fiche :</strong> le recueil permet d’identifier la situation, d’orienter la décision, puis de transmettre au copilote les actions importantes à suivre.
+</div>
+</SectionCard>
+</div>
+) : null}
+
+            
+            {activeSection === "vulnerabilite" ? (
               <div className="pv-section-anchor">
                 <AlertsBar alerts={alerts} />
 
-                <SectionCard title="Données du recueil" subtitle="Informations issues du recueil DPI / terrain" className="pv-card--nested">
-                  <InfoGrid columns={3} items={recueilItems} />
-                </SectionCard>
+<div
+style={{
+borderRadius: 16,
+padding: "14px 16px",
+background: "#fff1f2",
+border: "1px solid #fecaca",
+marginBottom: 16,
+display: "flex",
+justifyContent: "space-between",
+alignItems: "center",
+}}
+>
+<div>
+<div style={{ fontSize: 12, fontWeight: 700, color: "#991b1b" }}>
+NIVEAU DE RISQUE
+</div>
+<div style={{ fontSize: 18, fontWeight: 800, color: "#7f1d1d" }}>
+⚠️ Vulnérabilité critique
+</div>
+</div>
 
-                <SectionCard
-                  title="Synthèse"
-                  subtitle="Vue d’ensemble synthétique pour compréhension rapide avant détail."
-                  style={{ background: "linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)" }}
-                >
-                  <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: 14, marginBottom: 16 }}>
-                    <div
-                      style={{
-                        borderRadius: 20,
-                        padding: 18,
-                        background: "linear-gradient(135deg, #17376a 0%, #2452a4 100%)",
-                        color: "#ffffff",
-                        boxShadow: "0 14px 28px rgba(23, 55, 106, 0.22)",
-                      }}
-                    >
-                      <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>Sujet prioritaire</div>
-                      <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.15, marginBottom: 10 }}>{getPatientSubject(patient)}</div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <span style={{ padding: "6px 10px", borderRadius: 999, background: "rgba(255,255,255,0.14)", fontSize: 12, fontWeight: 700 }}>{safe(patient.service)}</span>
-                        <span style={{ padding: "6px 10px", borderRadius: 999, background: "rgba(255,255,255,0.14)", fontSize: 12, fontWeight: 700 }}>J+{los}</span>
-                        <span style={{ padding: "6px 10px", borderRadius: 999, background: "rgba(255,255,255,0.14)", fontSize: 12, fontWeight: 700 }}>{patient?.complexityLabel || risk.label}</span>
-                        <span style={{ padding: "6px 10px", borderRadius: 999, background: "rgba(255,255,255,0.14)", fontSize: 12, fontWeight: 700 }}>score {patient?.complexityScore ?? 0}</span>
-                      </div>
-                    </div>
+<div style={{ fontSize: 12, color: "#7f1d1d" }}>
+MAJ {formatShortDateTime(lastUpdate)}
+</div>
+</div>
 
-                    <div style={{ borderRadius: 20, padding: 18, border: "1px solid #e5e7eb", background: "#ffffff" }}>
-                      <div className="pv-label">Statut décision</div>
-                      <div style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", marginBottom: 8 }}>{decisionStatus.label}</div>
-                      <div style={{ fontSize: 13, color: "#64748b" }}>Blocage : {getBlockageLabel(patient)}</div>
-                    </div>
 
-                    <div style={{ borderRadius: 20, padding: 18, border: "1px solid #e5e7eb", background: "#ffffff" }}>
-                      <div className="pv-label">Date cible de sortie</div>
-                      <div style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", marginBottom: 8 }}>{targetDate ? formatShortDate(targetDate) : "—"}</div>
-                      <div style={{ fontSize: 13, color: "#64748b" }}>{targetDate ? targetStatus.label : "Non définie"}</div>
-                    </div>
-                  </div>
-
-                  <div className="pv-synthese-stack">
-                    <InfoGrid
-                      columns={3}
-                      items={[
-                        { label: "Sujet", value: getPatientSubject(patient) },
-                        { label: "Statut décision", value: decisionStatus.label },
-                        { label: "Dernière mise à jour", value: formatShortDateTime(lastUpdate) },
-                        { label: "Solution", value: getSolutionLabel(patient) },
-                        { label: "Blocage principal", value: getBlockageLabel(patient) },
-                        {
-                          label: "Date cible",
-                          value: `${formatShortDate(targetDate)}${targetDate ? ` · ${targetStatus.label}` : ""}`,
-                        },
-                        { label: "DMS", value: `J+${los}` },
-                        { label: "Service", value: safe(patient.service) },
-                        { label: "Dernière action utile", value: getTimeSince(lastUpdate) },
-                      ]}
-                    />
-
-                    <SectionCard title="Analyse automatique" subtitle="Lecture générée à partir des données disponibles" className="pv-card--nested">
-                      <InfoGrid columns={3} items={autoAnalysisItems} />
-                    </SectionCard>
-
-                    <SectionCard title="Décision de sortie" subtitle="Lecture claire de la décision en cours" className="pv-card--nested">
-                      <InfoGrid columns={3} items={decisionItems} />
-                    </SectionCard>
-
-                    <SectionCard title="Indicateurs du service" subtitle="Vision macro du service autour du patient courant." className="pv-card--nested">
-                      <InfoGrid
-                        columns={5}
-                        items={[
-                          { label: "Patients service", value: serviceIndicators.total },
-                          { label: "Critiques", value: serviceIndicators.critical },
-                          { label: "Sans date cible", value: serviceIndicators.withoutTargetDate },
-                          { label: "Vulnérables", value: serviceIndicators.vulnerable },
-                          { label: "Sort Med sans solution", value: serviceIndicators.medicallyReadyWithoutSolution },
-                        ]}
-                      />
-                    </SectionCard>
-
-                    <VulnerabilitySummaryCard patient={patient} onOpen={() => handleSectionChange("vulnerabilite")} />
-
-                    <SectionCard title="Actions immédiates" subtitle="Ce qui mérite une attention rapide dès l’ouverture de la fiche." className="pv-card--nested">
-                      <div className="pv-list">
-                        {immediateActions.length === 0 ? (
-                          <div className="pv-list-item pv-muted">Aucune action immédiate identifiée.</div>
-                        ) : (
-                          immediateActions.map((item) => (
-                            <div key={item} className="pv-list-item">
-                              <div className="pv-list-item__title">{item}</div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </SectionCard>
-
-                    <SectionCard title="Synthèse staff" subtitle="Version courte de ce qui sera présenté ou repris en staff." className="pv-card--nested">
-                      <div className="pv-staff-read">
-                        <div className="pv-staff-read__line"><strong>Synthèse :</strong> {report.infos || "À définir"}</div>
-                        <div className="pv-staff-read__line"><strong>Objectif :</strong> {report.objectifs || "À définir"}</div>
-                        <div className="pv-staff-read__line"><strong>Décision :</strong> {report.actions || "Non renseignée"}</div>
-                        <div className="pv-staff-read__line"><strong>Vigilance :</strong> {report.vigilances || "Non renseignée"}</div>
-                      </div>
-                    </SectionCard>
-
-                    <SectionCard title="Plan d’action résumé" subtitle="Lecture courte sans empiéter sur le copilote." className="pv-card--nested">
-                      <InfoGrid
-                        columns={3}
-                        items={[
-                          { label: "En cours", value: inProgressActions.length || 0 },
-                          { label: "Bloquées", value: blockedActions.length || 0 },
-                          { label: "Faites", value: doneActions.length || 0 },
-                        ]}
-                      />
-                    </SectionCard>
-                  </div>
-                </SectionCard>
-              </div>
-            ) : null}
-
-            {activeSection === "vulnerabilite" ? (
-              <div className="pv-section-anchor">
                 <VulnerabilityCard patient={patient} />
                 <VulnerabilityPhotoCard patient={patient} />
               </div>
