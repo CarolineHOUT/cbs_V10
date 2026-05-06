@@ -11,6 +11,9 @@ import IncidentView from "./IncidentViewTemp";
 import "./app.css";
 import AseLettreLiaisonView from "./ase/AseLettreLiaisonView";
 import AsePreparationInstanceView from "./ase/AsePreparationInstanceView";
+import ArsTerritorialDashboard from "./pages/ars/ArsTerritorialDashboard";
+import { arsMockRequests } from "./pages/ars/arsMockData";
+
 
 function RequireAuth({ user, children }) {
   if (!user) {
@@ -51,6 +54,11 @@ export default function App() {
           </RequireAuth>
         }
       />
+
+<Route
+path="/ars"
+element={<ArsTerritorialDashboard territorialRequests={arsMockRequests} />}
+/>
 
       <Route
         path="/patient/:id"

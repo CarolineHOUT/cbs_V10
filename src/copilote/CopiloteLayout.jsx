@@ -1402,7 +1402,7 @@ const isPediatric = isPediatricPatient(patient);
 // =====================
 if (isPediatric) {
 if (structured?.social?.protectionJuridique) {
-return "ASE / PMI";
+return "";
 }
 
 if (
@@ -1431,7 +1431,7 @@ return "Retour domicile IDEL";
 }
 
 // fallback pédiatrique par défaut
-return "ASE / PMI";
+return "";
 }
 
 // =====================
