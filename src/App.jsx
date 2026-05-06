@@ -9,6 +9,8 @@ import UnifiedDemoWorkspace from "./components/UnifiedDemoWorkspace";
 import CelluleCriseView from "./CelluleCriseView";
 import IncidentView from "./IncidentViewTemp";
 import "./app.css";
+import AseLettreLiaisonView from "./ase/AseLettreLiaisonView";
+import AsePreparationInstanceView from "./ase/AsePreparationInstanceView";
 
 function RequireAuth({ user, children }) {
   if (!user) {
@@ -85,7 +87,23 @@ export default function App() {
           </RequireAuth>
         }
       />
+<Route
+  path="/ase/lettre-liaison"
+  element={
+    <RequireAuth user={user}>
+      <AseLettreLiaisonView user={user} onLogout={handleLogout} />
+    </RequireAuth>
+  }
+/>
 
+<Route
+  path="/ase/preparation-instance"
+  element={
+    <RequireAuth user={user}>
+      <AsePreparationInstanceView user={user} onLogout={handleLogout} />
+    </RequireAuth>
+  }
+/>
       <Route
         path="/"
         element={<Navigate to={user ? "/dashboard" : "/login"} replace />}

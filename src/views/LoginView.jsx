@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import logoAccueil from "../assets/logo_accueil.png";
 import {
   ShieldCheck,
   Stethoscope,
@@ -10,6 +10,9 @@ import {
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import "./LoginView.css";
+
+import { useNavigate } from "react-router-dom";
+
 
 const roleBlocks = [
   {
@@ -73,52 +76,23 @@ export default function LoginView({ onLogin }) {
 
       <div className="carabbas-login-grid">
         <section className="carabbas-brand-panel">
-          <div className="carabbas-brand-topline">
-            <span className="carabbas-brand-seal">
-              <ShieldCheck size={18} />
-            </span>
-            <span className="carabbas-brand-chip">Plateforme sécurisée</span>
-          </div>
+  <div className="carabbas-brand-topline">
+    <span className="carabbas-brand-seal">
+      <ShieldCheck size={18} />
+    </span>
+    <span className="carabbas-brand-chip">Plateforme sécurisée</span>
+  </div>
 
-          <div className="carabbas-brand-copy">
-            <div className="carabbas-brand-logo" aria-label="CARABBAS">
-              <span className="carabbas-brand-logo-car">CAR</span>
-              <span className="carabbas-brand-logo-abbas">ABBAS</span>
-            </div>
+  <div className="carabbas-logo-card">
+    <img
+      src={logoAccueil}
+      alt="CARABBAS - Coordination Parcours Patient"
+      className="carabbas-login-logo"
+    />
+  </div>
 
-            <h1>
-              Coordination Parcours Patient.
-            </h1>
 
-            <p className="carabbas-brand-text">
-              Une interface pensée pour piloter les situations
-              sensibles, soutenir les acteurs de terrain.
-            </p>
-          </div>
-
-          <div className="carabbas-feature-grid">
-            {roleBlocks.map((item) => (
-              <article key={item.title} className="carabbas-feature-card">
-                <div className="carabbas-feature-icon">{item.icon}</div>
-                <div>
-                  <h2>{item.title}</h2>
-                  <p>{item.text}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-
-          <div className="carabbas-brand-footer">
-            <div className="carabbas-footer-item">
-              <BadgeCheck size={16} />
-              <span>Accès réservé aux professionnels autorisés</span>
-            </div>
-            <div className="carabbas-footer-item">
-              <LockKeyhole size={16} />
-              <span>Traçabilité et cloisonnement des accès par service</span>
-            </div>
-          </div>
-        </section>
+</section>
 
         <section className="carabbas-auth-panel">
           <div className="carabbas-auth-header">

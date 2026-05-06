@@ -285,6 +285,103 @@ function getMovements(patient) {
   ];
 }
 
+function getPatientResourceFollowUp(patient) {
+  const direct = patient?.resourceFollowUp;
+  const fromCopilot = patient?.copilotState?.resourceFollowUp;
+
+  if (Array.isArray(direct)) return direct;
+
+  if (direct && typeof direct === "object") {
+    return Object.values(direct);
+  }
+
+  if (Array.isArray(fromCopilot)) return fromCopilot;
+
+  if (fromCopilot && typeof fromCopilot === "object") {
+    return Object.values(fromCopilot);
+  }
+
+  return [];
+}
+function getPatientActionPlan(patient) {
+  if (!patient) return [];
+
+  const sources = [];
+
+  const addItems = (value) => {
+    if (Array.isArray(value)) sources.push(...value);
+    else if (value && typeof value === "object") sources.push(...Object.values(value));
+  };
+
+  addItems(patient?.actionPlan);
+  addItems(patient?.copilotState?.actions);
+  addItems(patient?.copilotState?.actionPlan);
+
+  const nextActions = [
+    patient?.nextAction,
+    patient?.copilotSummary?.nextAction,
+  ];
+
+  nextActions.forEach((nextAction) => {
+    if (
+      nextAction &&
+      nextAction.label &&
+      nextAction.label !== "Aucune action"
+    ) {
+      sources.push({
+        ...nextAction,
+        id: nextAction.id || `next_${nextAction.label}`,
+        title: nextAction.label,
+        owner: nextAction.owner || nextAction.responsable || "",
+        status: nextAction.status || "À faire",
+      });
+    }
+  });
+
+  try {
+    const raw = window.localStorage.getItem(
+      `${COPILOT_ACTIONS_PREFIX}${patient.id}`
+    );
+    const local = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(local)) sources.push(...local);
+  } catch {}
+
+  if (sources.length === 0) {
+    safeArray(patient?.derivedOrientations).forEach((item, index) => {
+      sources.push({
+        id: `derived_orientation_${index}`,
+        title: item?.label || item,
+        status: "À faire",
+        owner: patient?.copilotSummary?.responsableActuel || patient?.medecin || "",
+      });
+    });
+  }
+
+  const seen = new Set();
+
+  return sources
+    .filter(Boolean)
+    .filter((item) => {
+      const title = item.title || item.label || item.name;
+      if (!title || title === "Aucune action") return false;
+
+      const key = item.id || `${title}_${item.createdAt || item.dueDate || ""}`;
+      if (seen.has(key)) return false;
+
+      seen.add(key);
+      return true;
+    });
+}
+
+function getPatientHdjInfo(patient) {
+  return (
+    patient?.hdj ||
+    patient?.copilotSummary?.hdj ||
+    patient?.copilotState?.hdjForm ||
+    null
+  );
+}
+
 function getLongestMovement(movements) {
   if (!movements.length) return null;
   return [...movements]
@@ -486,6 +583,76 @@ function getImmediateActions(patient) {
   }
 
   return actions;
+}
+
+
+function buildCopilotActionFromPatient(patient) {
+  const nextAction =
+    patient?.nextAction ||
+    patient?.copilotSummary?.nextAction ||
+    null;
+
+  const title =
+    nextAction?.label && nextAction.label !== "Aucune action"
+      ? nextAction.label
+      : safeArray(patient?.derivedOrientations)?.[0]?.label ||
+        "Action de coordination";
+
+  return {
+    id: `manual_patient_action_${Date.now()}`,
+    source: "fiche-patient",
+    title,
+    label: title,
+    status: "À faire",
+    owner:
+      nextAction?.owner ||
+      patient?.copilotSummary?.responsableActuel ||
+      patient?.medecin ||
+      "",
+    dueDate:
+      patient?.dateSortiePrevue ||
+      patient?.dischargePlanning?.targetDateValidated ||
+      patient?.dischargePlanning?.targetDateEnvisaged ||
+      "",
+    patientId: patient?.id,
+    patientName: `${safe(patient?.nom, "")} ${safe(patient?.prenom, "")}`.trim(),
+    createdAt: new Date().toISOString(),
+    context: {
+      orientation: getSolutionLabel(patient),
+      blocage: getBlockageLabel(patient),
+      source: "Fiche patient",
+    },
+  };
+}
+
+function writePatientActionPlan(patientId, actions) {
+  if (!patientId || typeof window === "undefined") return;
+  window.localStorage.setItem(
+    `${COPILOT_ACTIONS_PREFIX}${patientId}`,
+    JSON.stringify(actions)
+  );
+}
+
+function updatePatientActionStatus(patient, actionId, patch) {
+  const current = getPatientActionPlan(patient);
+
+  const next = current.map((action) =>
+    action.id === actionId
+      ? {
+          ...action,
+          ...patch,
+          updatedAt: new Date().toISOString(),
+          doneAt:
+            patch.status === "Réalisé"
+              ? new Date().toISOString()
+              : action.doneAt,
+        }
+      : action
+  );
+
+  writePatientActionPlan(patient.id, next);
+
+  return next;
 }
 
 function buildServiceIndicators(currentPatient, allPatients) {
@@ -1726,14 +1893,41 @@ export default function PatientView() {
   const decisionStatus = getDecisionStatus(patient);
   const risk = getRiskLevel(patient);
   const los = getLengthOfStay(patient);
-  const planItems = Array.isArray(patient.actionPlan) ? patient.actionPlan : [];
-  const blockedActions = planItems.filter((item) => normalizeText(item.status || item.statut).includes("blo"));
-  const doneActions = planItems.filter(
-    (item) =>
-      normalizeText(item.status || item.statut).includes("fait") ||
-      normalizeText(item.status || item.statut).includes("réalis")
-  );
-  const inProgressActions = planItems.filter((item) => normalizeText(item.status || item.statut).includes("cours"));
+  const planItems = getPatientActionPlan(patient);
+  console.log("PLAN DEBUG", {
+  patientId: patient?.id,
+  actionPlan: patient?.actionPlan,
+  copilotStateActions: patient?.copilotState?.actions,
+  copilotStateActionPlan: patient?.copilotState?.actionPlan,
+  localStorageStaffActions: window.localStorage.getItem(
+    `${COPILOT_ACTIONS_PREFIX}${patient?.id}`
+  ),
+  planItems,
+});
+ const blockedActions = planItems.filter((item) =>
+  ["bloqué", "bloquee", "bloque", "blocked"].some((word) =>
+    normalizeText(item.status || item.statut).includes(word)
+  )
+);
+
+const doneActions = planItems.filter((item) =>
+  ["fait", "réalisé", "realise", "done"].some((word) =>
+    normalizeText(item.status || item.statut).includes(word)
+  )
+);
+const inProgressActions = planItems.filter((item) => {
+  const status = normalizeText(item.status || item.statut || "");
+
+  if (
+    ["fait", "réalisé", "realise", "done", "bloqué", "bloque", "blocked"].some(
+      (word) => status.includes(word)
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+});
   const nextOwner =
     planItems.find(
       (item) =>
@@ -1782,11 +1976,16 @@ export default function PatientView() {
     { id: "incident", label: "Incident", badge: incidentBadge },
     { id: "staff", label: "Staff", badge: savedAt ? "Historisé" : "Brouillon" },
     { id: "plan", label: "Plan d’action", badge: String(inProgressActions.length + blockedActions.length) },
-    { id: "ressources", label: "Ressources", badge: String(Array.isArray(patient.resourceFollowUp) ? patient.resourceFollowUp.length : 0) },
+  {
+  id: "ressources",
+  label: "Ressources",
+  badge: String(getPatientResourceFollowUp(patient).length),
+},
     { id: "documents", label: "Documents", badge: String(safeArray(patient.documents || patient.forms || patient.formulaires).length) },
   ];
 
   const statusMap = {
+    declared: { label: "Disparition déclarée", color: "red" },
     created: { label: "Disparition déclarée", color: "red" },
     internal_search: { label: "Recherche interne", color: "amber" },
     security_investigation: { label: "Sécurité en cours", color: "amber" },
@@ -2359,78 +2558,204 @@ MAJ {formatShortDateTime(lastUpdate)}
               </div>
             ) : null}
 
-            {activeSection === "plan" ? (
-              <div className="pv-section-anchor">
-                <SectionCard title="Plan d’action" subtitle="Lecture seule. Le pilotage détaillé reste dans le copilote.">
-                  <div className="pv-action-columns">
-                    <div>
-                      <div className="pv-action-columns__title">En cours</div>
-                      <div className="pv-list">
-                        {inProgressActions.length === 0 ? (
-                          <div className="pv-list-item pv-muted">Aucune</div>
-                        ) : (
-                          inProgressActions.map((item, index) => (
-                            <div key={item.id || `ip-${index}`} className="pv-list-item">
-                              <div className="pv-list-item__title">{item.label || item.title || `Action ${index + 1}`}</div>
-                              <div className="pv-list-item__meta">{item.owner || item.responsable || item.status || item.statut || "En cours"}</div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
+            
+{activeSection === "plan" ? (
+  <div className="pv-section-anchor">
+    <SectionCard
+      title="Plan d’action"
+      subtitle="Actions issues du copilote, du staff et de la fiche patient."
+      actions={
+        <button
+          type="button"
+          className="pv-btn primary"
+          onClick={() => {
+            const action = buildCopilotActionFromPatient(patient);
 
-                    <div>
-                      <div className="pv-action-columns__title">Bloquées</div>
-                      <div className="pv-list">
-                        {blockedActions.length === 0 ? (
-                          <div className="pv-list-item pv-muted">Aucune</div>
-                        ) : (
-                          blockedActions.map((item, index) => (
-                            <div key={item.id || `bl-${index}`} className="pv-list-item">
-                              <div className="pv-list-item__title">{item.label || item.title || `Action ${index + 1}`}</div>
-                              <div className="pv-list-item__meta">{item.owner || item.responsable || item.status || item.statut || "Bloqué"}</div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
+            const current = getPatientActionPlan(patient);
+            const next = [action, ...current];
 
-                    <div>
-                      <div className="pv-action-columns__title">Faites</div>
-                      <div className="pv-list">
-                        {doneActions.length === 0 ? (
-                          <div className="pv-list-item pv-muted">Aucune</div>
-                        ) : (
-                          doneActions.map((item, index) => (
-                            <div key={item.id || `do-${index}`} className="pv-list-item">
-                              <div className="pv-list-item__title">{item.label || item.title || `Action ${index + 1}`}</div>
-                              <div className="pv-list-item__meta">{item.owner || item.responsable || item.status || item.statut || "Fait"}</div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
+            writePatientActionPlan(patient.id, next);
+            setCopilotPushAt(action.createdAt);
+            handleSectionChange("plan");
+          }}
+        >
+          + Créer une action copilote
+        </button>
+      }
+    >
+      <div className="pv-action-columns">
+        <div>
+          <div className="pv-action-columns__title">En cours</div>
+
+          <div className="pv-list">
+            {inProgressActions.length === 0 ? (
+              <div className="pv-list-item pv-muted">Aucune</div>
+            ) : (
+              inProgressActions.map((item, index) => (
+                <div key={item.id || `ip-${index}`} className="pv-list-item">
+                  <div className="pv-list-item__title">
+                    {item.title || item.label || item.name || `Action ${index + 1}`}
                   </div>
-                </SectionCard>
-              </div>
-            ) : null}
 
-            {activeSection === "ressources" ? (
-              <div className="pv-section-anchor">
-                <ListCard
-                  title="Suivi des ressources"
-                  subtitle="Demandes et relais déjà activés."
-                  emptyLabel="Aucun suivi enregistré"
-                  items={Array.isArray(patient.resourceFollowUp) ? patient.resourceFollowUp : []}
-                />
-                <ListCard
-                  title="Historique HDJ"
-                  subtitle="Séquences programmées ou passées."
-                  emptyLabel="Aucune séquence HDJ"
-                  items={Array.isArray(patient.hdjHistory) ? patient.hdjHistory : []}
-                />
-              </div>
-            ) : null}
+                  <div className="pv-list-item__meta">
+                    {item.owner || item.responsable || "Responsable à définir"}
+                    {item.dueDate ? ` · échéance ${formatShortDate(item.dueDate)}` : ""}
+                    {item.status ? ` · ${item.status}` : ""}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                    <button
+                      type="button"
+                      className="pv-btn ghost"
+                      onClick={() => {
+                        updatePatientActionStatus(patient, item.id, {
+                          status: "Bloqué",
+                        });
+                        setCopilotPushAt(new Date().toISOString());
+                      }}
+                    >
+                      Bloquer
+                    </button>
+
+                    <button
+                      type="button"
+                      className="pv-btn primary"
+                      onClick={() => {
+                        updatePatientActionStatus(patient, item.id, {
+                          status: "Réalisé",
+                        });
+                        setCopilotPushAt(new Date().toISOString());
+                      }}
+                    >
+                      Marquer fait
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="pv-action-columns__title">Bloquées</div>
+
+          <div className="pv-list">
+            {blockedActions.length === 0 ? (
+              <div className="pv-list-item pv-muted">Aucune</div>
+            ) : (
+              blockedActions.map((item, index) => (
+                <div key={item.id || `bl-${index}`} className="pv-list-item">
+                  <div className="pv-list-item__title">
+                    {item.title || item.label || item.name || `Action ${index + 1}`}
+                  </div>
+
+                  <div className="pv-list-item__meta">
+                    {item.owner || item.responsable || "Responsable à définir"}
+                    {item.blockReason ? ` · ${item.blockReason}` : ""}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                    <button
+                      type="button"
+                      className="pv-btn ghost"
+                      onClick={() => {
+                        updatePatientActionStatus(patient, item.id, {
+                          status: "À faire",
+                        });
+                        setCopilotPushAt(new Date().toISOString());
+                      }}
+                    >
+                      Reprendre
+                    </button>
+
+                    <button
+                      type="button"
+                      className="pv-btn primary"
+                      onClick={() => {
+                        updatePatientActionStatus(patient, item.id, {
+                          status: "Réalisé",
+                        });
+                        setCopilotPushAt(new Date().toISOString());
+                      }}
+                    >
+                      Marquer fait
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="pv-action-columns__title">Faites</div>
+
+          <div className="pv-list">
+            {doneActions.length === 0 ? (
+              <div className="pv-list-item pv-muted">Aucune</div>
+            ) : (
+              doneActions.map((item, index) => (
+                <div key={item.id || `do-${index}`} className="pv-list-item">
+                  <div className="pv-list-item__title">
+                    {item.title || item.label || item.name || `Action ${index + 1}`}
+                  </div>
+
+                  <div className="pv-list-item__meta">
+                    {item.owner || item.responsable || "Responsable à définir"}
+                    {item.doneAt ? ` · fait le ${formatShortDateTime(item.doneAt)}` : ""}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {copilotPushAt ? (
+        <div className="pv-inline-note">
+          Dernière mise à jour : {formatShortDateTime(copilotPushAt)}
+        </div>
+      ) : null}
+    </SectionCard>
+  </div>
+) : null}
+  {activeSection === "ressources" ? (
+  <div className="pv-section-anchor">
+    <ListCard
+      title="Suivi des ressources"
+      subtitle="Demandes et relais déjà activés."
+      emptyLabel="Aucun suivi enregistré"
+      items={getPatientResourceFollowUp(patient)}
+    />
+
+    <ListCard
+      title="HDJ"
+      subtitle="Parcours HDJ construit ou transmis depuis le copilote."
+      emptyLabel="Aucun parcours HDJ enregistré"
+      items={
+        getPatientHdjInfo(patient)
+          ? [
+              {
+                title:
+                  getPatientHdjInfo(patient)?.title ||
+                  patient?.copilotSummary?.hdjTitle ||
+                  "Parcours HDJ",
+                status:
+                  patient?.hdj?.status ||
+                  patient?.copilotSummary?.hdjStatus ||
+                  patient?.copilotState?.hdjStatus ||
+                  "En cours",
+                notes:
+                  getPatientHdjInfo(patient)?.objective ||
+                  patient?.copilotSummary?.hdjObjective ||
+                  "",
+              },
+            ]
+          : []
+      }
+    />
+  </div>
+) : null}
 
             {activeSection === "documents" ? (
               <div className="pv-section-anchor">

@@ -713,7 +713,29 @@ solutionLabel:
 next.solutionLabel ?? patient.solutionLabel ?? "",
 
 dateSortiePrevue:
-next.dateSortiePrevue ?? patient.dateSortiePrevue ?? "",
+next.dischargePlannedDate ??
+patient.dateSortiePrevue ??
+"",
+
+copilotState: {
+...(patient.copilotState || {}),
+...(next.copilotState || {}),
+dischargePlannedAt:
+next.dischargePlannedAt ??
+next.copilotState?.dischargePlannedAt ??
+patient.copilotState?.dischargePlannedAt ??
+"",
+dischargePlannedDate:
+next.dischargePlannedDate ??
+next.copilotState?.dischargePlannedDate ??
+patient.copilotState?.dischargePlannedDate ??
+"",
+dischargePlannedTime:
+next.dischargePlannedTime ??
+next.copilotState?.dischargePlannedTime ??
+patient.copilotState?.dischargePlannedTime ??
+"",
+},
 
 dischargePlanning: {
 ...(patient.dischargePlanning || {}),
@@ -749,6 +771,7 @@ Array.isArray(next.decisionLog)
 
 updatedAt: new Date().toISOString(),
 });
+
 })
 );
 }, []);
@@ -1558,111 +1581,132 @@ const resetAllPatientsToQualifier = useCallback(() => {
     console.error("Erreur reset localStorage", error);
   }
 }, []);
+
+
+const resetPatientsFromDPI = useCallback(() => {
+  const generated = generateDPIPatients();
+
+  const nextPatients = assignPatientsToConfiguredBeds(generated).map(
+    (patient, index) => buildPatient(normalizePatientSex(patient, index))
+  );
+
+  try {
+    window.localStorage.removeItem(PATIENTS_STORAGE_KEY);
+    window.localStorage.removeItem(INCIDENTS_STORAGE_KEY);
+  } catch (error) {
+    console.error("Erreur reset patients DPI", error);
+  }
+
+  setIncidentsState([]);
+  setPatientsState(() => [...nextPatients]);
+}, []);
+
 const value = useMemo(
-() => ({
-patients: patientsState,
-patientsSimulated: patientsState,
-resources: resourcesState,
-setResources: setResourcesState,
+  () => ({
+    patients: patientsState,
+    patientsSimulated: patientsState,
+    resources: resourcesState,
+    setResources: setResourcesState,
 
-saveCopilotState,
-syncCopilotToPatient,
+    saveCopilotState,
+    syncCopilotToPatient,
 
-incidents: incidentsState,
-createIncidentForPatient,
-addIncidentAction,
-updateIncidentWorkflow,
-setIncidentStep,
-updateIncidentStatus,
-closeIncidentForPatient,
-getIncidentsByPatientId,
-getActiveIncidentByPatientId,
+    incidents: incidentsState,
+    createIncidentForPatient,
+    addIncidentAction,
+    updateIncidentWorkflow,
+    setIncidentStep,
+    updateIncidentStatus,
+    closeIncidentForPatient,
+    getIncidentsByPatientId,
+    getActiveIncidentByPatientId,
 
-getPatientById,
-addSimulatedPatient,
-updatePatient,
-updateStructuredIntake,
-recomputeDerivedData,
-toggleManualVulnerabilityProfile,
-deletePatient,
-clearAllPatients,
-resetAllPatientsToQualifier,
+    getPatientById,
+    addSimulatedPatient,
+    updatePatient,
+    updateStructuredIntake,
+    recomputeDerivedData,
+    toggleManualVulnerabilityProfile,
+    deletePatient,
+    clearAllPatients,
+    resetAllPatientsToQualifier,
+    resetPatientsFromDPI,
 
-addActionsToPatient,
-updateAction,
-addActionComment,
-scheduleActionReminder,
+    addActionsToPatient,
+    updateAction,
+    addActionComment,
+    scheduleActionReminder,
 
-addHDJToPatient,
+    addHDJToPatient,
 
-upsertResourceFollowUp,
-updateResourceFollowUp,
-addResourceFollowUpEvent,
-scheduleResourceReminder,
-markResourceRequestSent,
-markResourceResponseReceived,
-markResourceRefused,
+    upsertResourceFollowUp,
+    updateResourceFollowUp,
+    addResourceFollowUpEvent,
+    scheduleResourceReminder,
+    markResourceRequestSent,
+    markResourceResponseReceived,
+    markResourceRefused,
 
-addSpiritNote,
-replyToSpiritNote,
-markSpiritNotesRead,
-addNeed,
-removeNeed,
-addCategory,
-removeCategory,
-addBlockage,
-removeBlockage,
-addTerrainResource,
-updateTerrainResource,
-resetResourcesToDefault,
-}),
-[
-patientsState,
-resourcesState,
-incidentsState,
-createIncidentForPatient,
-addIncidentAction,
-updateIncidentWorkflow,
-setIncidentStep,
-updateIncidentStatus,
-closeIncidentForPatient,
-getIncidentsByPatientId,
-getActiveIncidentByPatientId,
-getPatientById,
-addSimulatedPatient,
-updatePatient,
-updateStructuredIntake,
-recomputeDerivedData,
-toggleManualVulnerabilityProfile,
-deletePatient,
-clearAllPatients,
-addActionsToPatient,
-updateAction,
-addActionComment,
-scheduleActionReminder,
-addHDJToPatient,
-upsertResourceFollowUp,
-updateResourceFollowUp,
-addResourceFollowUpEvent,
-scheduleResourceReminder,
-markResourceRequestSent,
-markResourceResponseReceived,
-markResourceRefused,
-addSpiritNote,
-replyToSpiritNote,
-markSpiritNotesRead,
-addNeed,
-removeNeed,
-addCategory,
-removeCategory,
-addBlockage,
-removeBlockage,
-addTerrainResource,
-updateTerrainResource,
-resetResourcesToDefault,
-]
+    addSpiritNote,
+    replyToSpiritNote,
+    markSpiritNotesRead,
+    addNeed,
+    removeNeed,
+    addCategory,
+    removeCategory,
+    addBlockage,
+    removeBlockage,
+    addTerrainResource,
+    updateTerrainResource,
+    resetResourcesToDefault,
+  }),
+  [
+    patientsState,
+    resourcesState,
+    incidentsState,
+    resetPatientsFromDPI,
+    createIncidentForPatient,
+    addIncidentAction,
+    updateIncidentWorkflow,
+    setIncidentStep,
+    updateIncidentStatus,
+    closeIncidentForPatient,
+    getIncidentsByPatientId,
+    getActiveIncidentByPatientId,
+    getPatientById,
+    addSimulatedPatient,
+    updatePatient,
+    updateStructuredIntake,
+    recomputeDerivedData,
+    toggleManualVulnerabilityProfile,
+    deletePatient,
+    clearAllPatients,
+    addActionsToPatient,
+    updateAction,
+    addActionComment,
+    scheduleActionReminder,
+    addHDJToPatient,
+    upsertResourceFollowUp,
+    updateResourceFollowUp,
+    addResourceFollowUpEvent,
+    scheduleResourceReminder,
+    markResourceRequestSent,
+    markResourceResponseReceived,
+    markResourceRefused,
+    addSpiritNote,
+    replyToSpiritNote,
+    markSpiritNotesRead,
+    addNeed,
+    removeNeed,
+    addCategory,
+    removeCategory,
+    addBlockage,
+    removeBlockage,
+    addTerrainResource,
+    updateTerrainResource,
+    resetResourcesToDefault,
+  ]
 );
-
 return (
 <PatientSimulationContext.Provider value={value}>
 {children}

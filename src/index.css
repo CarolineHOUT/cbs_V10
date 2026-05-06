@@ -49,6 +49,10 @@
   --radius-xs: 10px;
 }
 
+/* =========================
+RESET GLOBAL MINIMAL
+========================= */
+
 * {
   box-sizing: border-box;
 }
@@ -63,6 +67,7 @@ body,
 
 body {
   color: var(--text);
+  overflow-x: hidden;
 }
 
 a {
@@ -86,21 +91,225 @@ select,
 textarea {
   outline: none;
 }
-highlight-section {
-animation: highlightFlash 2s ease;
+
+/* =========================
+ANIMATION OPTIONNELLE
+========================= */
+
+.highlight-section {
+  animation: highlightFlash 2s ease;
+  border-radius: 16px;
 }
 
 @keyframes highlightFlash {
-0% {
-box-shadow: 0 0 0 0 rgba(23, 55, 106, 0.4);
-background: #eef4ff;
+  0% {
+    box-shadow: 0 0 0 0 rgba(23, 55, 106, 0.4);
+    background: #eef4ff;
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(23, 55, 106, 0);
+    background: transparent;
+  }
 }
-100% {
-box-shadow: 0 0 0 0 rgba(23, 55, 106, 0);
-background: transparent;
+
+/* =========================
+COMPOSANTS GÉNÉRIQUES SCOPÉS
+========================= */
+
+.app-header,
+.cb-header {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
+
+.app-card,
+.card {
+  transition: transform 0.2s ease;
 }
-.highlight-section {
-animation: highlightFlash 2s ease;
-border-radius: 16px;
+
+.app-card:hover,
+.card:hover {
+  transform: translateY(-2px);
+}
+
+.app-chip {
+  border: 1px solid #e5e7eb;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.app-chip:hover {
+  background: #f3f4f6;
+}
+
+.app-chip.active {
+  background: #2563eb;
+  color: white;
+}
+
+.view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.view-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.view-reset {
+  margin-left: auto;
+}
+
+/* =========================
+ZONE IMPRESSION : CACHÉE À L'ÉCRAN
+========================= */
+
+#bio-print-area,
+#agent-print-area {
+  display: none;
+}
+
+/* =========================
+RESPONSIVE TABLETTE
+========================= */
+
+@media (max-width: 900px) {
+  .app-shell,
+  main {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .view-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .view-tabs,
+  .service-tabs,
+  .app-chip-row {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    width: 100%;
+    gap: 6px;
+    padding-bottom: 6px;
+  }
+
+  .app-chip {
+    white-space: nowrap;
+  }
+
+  .patient-card,
+  .patient-row {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .patient-card > div,
+  .patient-row > div {
+    width: 100% !important;
+  }
+
+  .kpi-grid,
+  .metrics-grid,
+  .dashboard-kpis {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px;
+  }
+}
+
+/* =========================
+RESPONSIVE MOBILE
+========================= */
+
+@media (max-width: 600px) {
+  .app-header,
+  .cb-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .kpi-grid,
+  .metrics-grid,
+  .dashboard-kpis {
+    grid-template-columns: 1fr !important;
+  }
+
+  .patient-card,
+  .patient-row {
+    grid-template-columns: 1fr !important;
+    padding: 12px !important;
+  }
+
+  .app-card,
+  .card {
+    padding: 12px !important;
+    border-radius: 14px;
+  }
+
+  .app-chip {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
+  h1 {
+    font-size: 20px !important;
+  }
+
+  h2,
+  h3 {
+    font-size: 16px !important;
+  }
+}
+
+/* =========================
+IMPRESSION — SCOPÉE UNIQUEMENT AUX ZONES PRINT
+========================= */
+
+@media print {
+  body {
+    background: white !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  #bio-print-area,
+  #agent-print-area {
+    display: block !important;
+    position: absolute !important;
+    inset: 0;
+    width: 100%;
+    padding: 20px;
+    background: white !important;
+  }
+
+  #bio-print-area *,
+  #agent-print-area * {
+    visibility: visible !important;
+  }
+
+  #bio-print-area div,
+  #bio-print-area article,
+  #bio-print-area section,
+  #agent-print-area div,
+  #agent-print-area article,
+  #agent-print-area section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
 }

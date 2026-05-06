@@ -92,10 +92,8 @@ function handleCreatePatient() {
 
  const structuredIntake = patientIntake?.structuredIntake || {};
 
-  const newPatient = {
-    id,
-    id,
-   id,
+const newPatient = {
+  id,
   nom: identity.lastName?.trim() || "Nom",
   prenom: identity.firstName?.trim() || "Prénom",
   dateNaissance: identity.birthDate || "",
@@ -106,77 +104,84 @@ function handleCreatePatient() {
   service: identity.service || "",
   chambre: identity.room || "",
   lit: identity.bed || "",
-    dateEntree: new Date().toISOString().slice(0, 10),
-    dateSortiePrevue: "",
-    orientation: "À définir",
-    severity,
-    gravite: severity,
-    blockReason: territory?.mainNeed || "À définir",
-    blocage: territory?.mainNeed || "",
 
-    structuredIntake,
+  infectionRisk: {
+    isolation: false,
+    type: "standard",
+    pathogen: "",
+    hygieneRisk: false,
+    notes: "",
+    startAt: "",
+    endAt: "",
+  },
 
-    intakeSelections: patientIntake?.intakeSelections || {},
+  dateEntree: new Date().toISOString().slice(0, 10),
+  dateSortiePrevue: "",
+  orientation: "À définir",
+  severity,
+  gravite: severity,
+  blockReason: territory?.mainNeed || "À définir",
+  blocage: territory?.mainNeed || "",
 
-    dynamicNeeds: territory?.mainNeed
-      ? [
-          {
-            id: `need_${Date.now()}`,
-            label: territory.mainNeed,
-            statut: "actif",
-            source: "recueil",
-          },
-        ]
-      : [],
+  structuredIntake,
+  intakeSelections: patientIntake?.intakeSelections || {},
 
-    dynamicCategories: [],
-    dynamicBlockages: [],
-    actionPlan: [],
-    hdjHistory: [],
-    resourceFollowUp: [],
-    spiritNotes: [],
-    history: [],
-    incidentHistory: [],
+  dynamicNeeds: territory?.mainNeed
+    ? [
+        {
+          id: `need_${Date.now()}`,
+          label: territory.mainNeed,
+          statut: "actif",
+          source: "recueil",
+        },
+      ]
+    : [],
 
-    personneConfiance: {
-      nom: identity.personneConfiance || "",
-      prenom: "",
-      telephone: "",
-      lien: "",
-    },
+  dynamicCategories: [],
+  dynamicBlockages: [],
+  actionPlan: [],
+  hdjHistory: [],
+  resourceFollowUp: [],
+  spiritNotes: [],
+  history: [],
+  incidentHistory: [],
 
-    personneAPrevenir: {
-      nom: identity.personneAPrevenir || "",
-      prenom: "",
-      telephone: "",
-      lien: "",
-    },
+  personneConfiance: {
+    nom: identity.personneConfiance || "",
+    prenom: "",
+    telephone: "",
+    lien: "",
+  },
 
-    mesureProtection: identity.mesureProtection || "",
-    source: "SIMULATION",
-    createdAt: new Date().toISOString(),
+  personneAPrevenir: {
+    nom: identity.personneAPrevenir || "",
+    prenom: "",
+    telephone: "",
+    lien: "",
+  },
 
-    territory: {
-      city: territory?.city || "Cherbourg-en-Cotentin",
-      postalCode: territory?.postalCode || "50100",
-      street: territory?.street || "",
-      housingType: territory?.housingType || "",
-      mainNeed: territory?.mainNeed || "",
-    },
+  mesureProtection: identity.mesureProtection || "",
+  source: "SIMULATION",
+  createdAt: new Date().toISOString(),
 
-    adresse: {
-      city: territory?.city || "Cherbourg-en-Cotentin",
-      postalCode: territory?.postalCode || "50100",
-      street: territory?.street || "",
-      housingType: territory?.housingType || "",
-    },
+  territory: {
+    city: territory?.city || "Cherbourg-en-Cotentin",
+    postalCode: territory?.postalCode || "50100",
+    street: territory?.street || "",
+    housingType: territory?.housingType || "",
+    mainNeed: territory?.mainNeed || "",
+  },
 
-    vigilance: identity.vigilance || "",
-  };
+  adresse: {
+    city: territory?.city || "Cherbourg-en-Cotentin",
+    postalCode: territory?.postalCode || "50100",
+    street: territory?.street || "",
+    housingType: territory?.housingType || "",
+  },
 
-  addSimulatedPatient(newPatient);
-  navigate("/dashboard", { state: { highlightPatientId: id } });
-}
+  vigilance: identity.vigilance || "",
+};
+
 
 return (
   <div style={wrap}>
@@ -488,3 +493,4 @@ const hintBlock = { border: "1px solid #e6ebf2", borderRadius: 14, background: "
 const hintTitle = { fontSize: 12, fontWeight: 900, color: "#17376a", textTransform: "uppercase", letterSpacing: 0.2 };
 const hintList = { margin: 0, paddingLeft: 18, color: "#475569", fontSize: 13, lineHeight: 1.5 };
 const floatingButton = { position: "fixed", right: 24, bottom: 24, height: 50, padding: "0 18px", borderRadius: 999, border: "1px solid #1d4b8f", background: "#1d4b8f", color: "#fff", fontSize: 14, fontWeight: 900, cursor: "pointer", boxShadow: "0 14px 28px rgba(29, 75, 143, 0.22)", zIndex: 30 };
+}

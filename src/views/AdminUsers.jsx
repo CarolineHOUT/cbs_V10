@@ -53,10 +53,14 @@ export function AdminUsers() {
           }
         >
           <option value="DIRECTION">Direction</option>
-          <option value="CADRE">Cadre</option>
-          <option value="AS">AS</option>
-          <option value="IDE">IDE</option>
-          <option value="MEDECIN">Médecin</option>
+<option value="CADRE">Cadre</option>
+
+<option value="BIO">Agent bio-nettoyage</option>
+<option value="CADRE_BIO">Cadre bio-nettoyage</option>
+
+<option value="AS">AS</option>
+<option value="IDE">IDE</option>
+<option value="MEDECIN">Médecin</option>
         </select>
 
         <input

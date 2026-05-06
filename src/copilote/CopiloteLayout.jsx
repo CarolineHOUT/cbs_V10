@@ -3,9 +3,11 @@ import { useLocation } from "react-router-dom";
 import { getHDJSuggestionsFromStructuredIntake } from "../domain/hdj/hdjSuggestionEngine";
 import { getOrientationSuggestionsFromPatient } from "./copiloteOrientationEngine";
 import { medecins, pilotes } from "../data/users";
+import { usePatientSimulation } from "../context/PatientSimulationContext";
+import HDJTerritorialNetworkPanel from "../components/HDJTerritorialNetworkPanel";
+import HDJTerritorialCommandCenter from "../components/HDJTerritorialCommandCenter";
 function formatRelativeTime(dateString) {
 if (!dateString) return "";
-
 const date = new Date(dateString);
 const now = new Date();
 const diffMs = now - date;
@@ -24,7 +26,7 @@ return date.toLocaleDateString();
 }
 
 
-import { usePatientSimulation } from "../context/PatientSimulationContext";
+
 import { resourcesCotentinAnnuaire } from "../contacts/resourcesCotentinAnnuaire";
 import { useRef } from "react";
 import PatientIdentityBar from "../components/PatientIdentityBar";
@@ -82,7 +84,10 @@ aide_exceptionnelle: "https://demarche.numerique.gouv.fr/",
 lettre_ase: "/ase/lettre-liaison",
 instance_ase: "/ase/preparation-instance",
 usp: "https://extranet.ch-cotentin.fr/preadusp/",
+crip: "https://www.manche.fr/demarches/etre-parent/signaler-un-enfant-en-danger/",
 };
+
+
 
 const FORM_LABELS = {
 via_trajectoire: "ViaTrajectoire",
@@ -91,6 +96,7 @@ mdph: "MDPH",
 aide_exceptionnelle: "Aide exceptionnelle",
 lettre_ase: "Lettre ASE",
 instance_ase: "Préparation instance ASE",
+crip: "Signalement CRIP ⚠️",
 };
 
 const MENU_ITEMS = [
@@ -316,7 +322,7 @@ acts: [
 frequency: "1 fois / semaine",
 duration: "4 semaines",
 actor: "Coordination / social",
-alternatives: ["DAC", "APA", "Aide à domicile", "ASE / social"],
+alternatives: ["DAC / coordination", "Aide sociale adulte", "Aide à domicile", "ESMS / foyer"],
 },
 {
 id: "hdj_post_hosp",
@@ -372,6 +378,71 @@ alternatives: ["HAD", "Retour domicile IDEL"],
 const BUILTIN_RESOURCES = [
 
 ];
+
+
+export function findSimilarHdjModels(labels = [], patient = {}) {
+if (!labels.length) return [];
+
+const normalizedLabels = labels.map(normalizeKeywordLabel);
+
+const isPediatric =
+Number(patient?.age || 0) < 18 ||
+normalizeKeywordLabel(patient?.service || "").includes("pediatr") ||
+normalizeKeywordLabel(patient?.service || "").includes("enfant");
+
+return HDJ_LIBRARY
+.map((model) => {
+const searchable = normalizeKeywordLabel([
+model.id,
+model.title,
+model.family,
+model.objective,
+...(model.triggers || []),
+...(model.commonKeywords || []),
+].join(" "));
+
+const score = normalizedLabels.reduce((acc, label) => {
+if (searchable.includes(label)) return acc + 3;
+
+const words = label.split(" ");
+
+if (
+words.some(
+(word) =>
+word.length > 4 && searchable.includes(word)
+)
+) {
+return acc + 1;
+}
+
+return acc;
+}, 0);
+
+return {
+...model,
+score,
+searchable,
+};
+})
+.filter((model) => {
+if (model.score <= 0) return false;
+
+const isPediatricModel =
+model.searchable.includes("pedopsy") ||
+model.searchable.includes("pediatr") ||
+model.searchable.includes("enfant") ||
+model.searchable.includes("ado") ||
+model.searchable.includes("camsp");
+
+if (isPediatric) {
+return isPediatricModel;
+}
+
+return !isPediatricModel;
+})
+.sort((a, b) => b.score - a.score)
+.slice(0, 5);
+}
 
 /* =========================
 HELPERS
@@ -553,12 +624,22 @@ tone: "green",
 
 
 
-function computeOrientationSuggestionsFromKeywords(activeKeywords = []) {
+function computeOrientationSuggestionsFromKeywords(activeKeywords = [], patient = {}) {
+
 const labels = safeArray(activeKeywords).map((item) =>
 normalizeKeywordLabel(typeof item === "string" ? item : item?.label)
 );
 
-const has = (value) => labels.some((label) => label.includes(normalizeKeywordLabel(value)));
+const has = (value) =>
+labels.some((label) => label.includes(normalizeKeywordLabel(value)));
+
+const isPediatric =
+has("situation pediatrique") ||
+has("pediatrie") ||
+has("enfant") ||
+has("adolescent") ||
+has("ado") ||
+has("ase / pmi");
 
 const scores = {
 "Retour domicile IDEL": 0,
@@ -569,73 +650,200 @@ USLD: 0,
 HDJ: 0,
 "USP / Soins palliatifs": 0,
 "Aide à domicile": 0,
-"ASE / social": 0,
+"ASE / PMI": 0,
+"HDJ pédopsy": 0,
+"CMPEA / pédopsy": 0,
+"MDA / adolescent": 0,
+CAMSP: 0,
+"Équipe mobile enfant": 0,
+"DAC / coordination": -50,
 };
 
+if (isPediatric) {
+if (
+has("protection juridique") ||
+has("information préoccupante") ||
+has("crip") ||
+has("violence") ||
+has("carence") ||
+has("ase / pmi")
+) {
+scores["ASE / PMI"] += 10;
+}
+
+if (
+has("psy") ||
+has("pedopsy") ||
+has("trouble comportement") ||
+has("angoisse") ||
+has("depression") ||
+has("scarification")
+) {
+scores["CMPEA / pédopsy"] += 8;
+scores["HDJ pédopsy"] += 7;
+}
+
+if (has("adolescent") || has("ado") || has("phobie scolaire")) {
+scores["MDA / adolescent"] += 7;
+}
+
+if (
+has("autisme") ||
+has("tdah") ||
+has("retard developpement") ||
+has("neurodeveloppement")
+) {
+scores.CAMSP += 7;
+}
+
+if (
+has("retour domicile impossible") ||
+has("rupture familiale") ||
+has("blocage social")
+) {
+scores["Équipe mobile enfant"] += 5;
+}
+}
+
+if (!isPediatric) {
 if (has("retour domicile impossible")) {
 scores["SSR / SMR"] += 4;
-scores["EHPAD"] += 3;
-scores["USLD"] += 2;
+scores.EHPAD += 3;
+scores.USLD += 2;
 }
 
 if (has("surveillance ide")) {
-scores["HAD"] += 3;
+scores.HAD += 3;
 scores["Retour domicile IDEL"] += 2;
 scores["Aide à domicile"] += 1;
 }
 
 if (has("douleur")) {
-scores["HAD"] += 2;
-scores["HDJ"] += 1;
+scores.HAD += 2;
+scores.HDJ += 2;
 scores["USP / Soins palliatifs"] += 1;
 }
 
 if (has("palliatif") || has("fin de vie")) {
-scores["USP / Soins palliatifs"] += 5;
-scores["HAD"] += 3;
-scores["EHPAD"] += 1;
+scores["USP / Soins palliatifs"] += 6;
+scores.HAD += 3;
+scores.EHPAD += 1;
 }
 
 if (has("aidant epuise")) {
-scores["ASE / social"] += 2;
 scores["Aide à domicile"] += 3;
-scores["EHPAD"] += 2;
-scores["HAD"] += 1;
+scores.EHPAD += 2;
+scores.HAD += 1;
+scores["DAC / coordination"] += 2;
 }
 
-if (has("isolement")) {
-scores["ASE / social"] += 3;
+if (
+has("isolement majeur") ||
+has("precarite majeure") ||
+has("droits non ouverts")
+) {
+scores["DAC / coordination"] += 4;
 scores["Aide à domicile"] += 2;
-scores["EHPAD"] += 2;
-}
-
-if (has("precarite")) {
-scores["ASE / social"] += 4;
-scores["Aide à domicile"] += 1;
-}
-
-if (has("protection juridique") || has("tutelle") || has("curatelle")) {
-scores["ASE / social"] += 3;
-scores["EHPAD"] += 1;
-scores["USLD"] += 1;
 }
 
 if (has("perte autonomie")) {
-scores["EHPAD"] += 3;
-scores["USLD"] += 2;
+scores.EHPAD += 3;
+scores.USLD += 2;
 scores["Aide à domicile"] += 2;
 scores["SSR / SMR"] += 1;
 }
 
 if (has("logement inadapte")) {
-scores["ASE / social"] += 2;
-scores["EHPAD"] += 2;
+scores.EHPAD += 2;
 scores["SSR / SMR"] += 1;
+scores["DAC / coordination"] += 3;
 }
 
-if (has("situation pediatrique")) {
-scores["ASE / social"] += 1;
-scores["HDJ"] += 1;
+if (
+has("trouble cognitif") ||
+has("alzheimer") ||
+has("desorientation") ||
+has("memoire")
+) {
+scores.HDJ += 4;
+scores.EHPAD += 1;
+}
+}
+
+const hasTrueCoordinationBlock =
+has("retour domicile impossible") ||
+has("blocage social") ||
+has("absence solution") ||
+has("rupture parcours") ||
+has("aidant epuise") ||
+has("isolement majeur") ||
+has("precarite majeure") ||
+has("logement inadapte") ||
+has("droits non ouverts");
+
+const hasHdjNeed =
+has("trouble cognitif") ||
+has("troubles cognitifs") ||
+has("memoire") ||
+has("alzheimer") ||
+has("desorientation") ||
+has("confusion") ||
+has("fragilite") ||
+has("chute") ||
+has("perte autonomie") ||
+has("denutrition") ||
+has("iatrogenie") ||
+has("polymedication") ||
+has("equilibre traitement") ||
+has("observance") ||
+has("ferinject") ||
+has("fer iv") ||
+has("transfusion") ||
+has("ponction ascite") ||
+has("ponction pleurale") ||
+has("pansement") ||
+has("plaie") ||
+has("bpco") ||
+has("respiratoire") ||
+has("douleur") ||
+has("nutrition");
+
+if (hasHdjNeed) {
+scores.HDJ += 4;
+}
+const service = normalizeKeywordLabel(patient?.service || "");
+
+if (
+!isPediatric &&
+hasHdjNeed &&
+(
+service.includes("geriatr") ||
+service.includes("medecine") ||
+service.includes("oncologie") ||
+service.includes("cardio") ||
+service.includes("pneumo")
+)
+) {
+scores.HDJ += 2;
+}
+
+
+if (!hasTrueCoordinationBlock) {
+scores["DAC / coordination"] -= 100;
+}
+
+if (isPediatric) {
+const pediatricPriority =
+scores["ASE / PMI"] +
+scores["HDJ pédopsy"] +
+scores["CMPEA / pédopsy"] +
+scores["MDA / adolescent"] +
+scores["Équipe mobile enfant"] +
+scores.CAMSP;
+
+if (pediatricPriority > 0) {
+scores["DAC / coordination"] = -100;
+}
 }
 
 const ranked = Object.entries(scores)
@@ -643,13 +851,24 @@ const ranked = Object.entries(scores)
 .filter((item) => item.score > 0)
 .sort((a, b) => b.score - a.score);
 
+const main =
+ranked.find((item) => item.label !== "DAC / coordination")?.label ||
+ranked[0]?.label ||
+"";
+
+const alternatives = ranked
+.map((item) => item.label)
+.filter((label) => label !== main);
+
 return {
 ranked,
-main: ranked[0]?.label || "",
-alternative1: ranked[1]?.label || "",
-alternative2: ranked[2]?.label || "",
+main,
+alternative1: alternatives[0] || "",
+alternative2: alternatives[1] || "",
 };
 }
+
+
 
 function normalizeKeywordLabel(value) {
 return String(value || "")
@@ -671,77 +890,102 @@ return true;
 }
 
 function buildSharedPatientPayload({
-quickSummary,
-targetDate,
-targetDateStatus,
-selectedOrientation,
-orientationPlanB,
-orientationPlanC,
-currentSolution,
-coordination,
-actions,
-resourceFollowUp,
-coordinationStatus,
-hadEligibility,
-hdjForm,
-hdjStatus,
-decisionLog,
+  quickSummary,
+  targetDate,
+  targetDateStatus,
+  selectedOrientation,
+  orientationPlanB,
+  orientationPlanC,
+  currentSolution,
+  coordination,
+  actions,
+  resourceFollowUp,
+  coordinationStatus,
+  hadEligibility,
+  hdjForm,
+  hdjStatus,
+  decisionLog,
 }) {
-const resolvedOrientation = currentSolution || selectedOrientation || "";
+  const resolvedOrientation = currentSolution || selectedOrientation || "";
 
-return {
-orientation: resolvedOrientation,
-solutionLabel: resolvedOrientation,
-dateSortiePrevue: targetDate || "",
+  return {
+    orientation: resolvedOrientation,
+    solutionLabel: resolvedOrientation,
+    dateSortiePrevue: targetDate || "",
 
-dischargePlanning: {
-solutionLabel: resolvedOrientation,
-targetDateEnvisaged:
-targetDateStatus !== "validée" ? targetDate || "" : "",
-targetDateValidated:
-targetDateStatus === "validée" ? targetDate || "" : "",
-targetDateStatus: targetDateStatus || "estimée",
-planB: orientationPlanB || "",
-planC: orientationPlanC || "",
-},
+    dischargePlanning: {
+      solutionLabel: resolvedOrientation,
+      targetDateEnvisaged:
+        targetDateStatus !== "validée" ? targetDate || "" : "",
+      targetDateValidated:
+        targetDateStatus === "validée" ? targetDate || "" : "",
+      targetDateStatus: targetDateStatus || "estimée",
+      planB: orientationPlanB || "",
+      planC: orientationPlanC || "",
+    },
 
-copilotSummary: {
-situation: quickSummary?.situation || "",
-block: quickSummary?.block || "",
-strategy: quickSummary?.strategy || "",
-nextAction: quickSummary?.nextAction || "",
-owner: quickSummary?.owner || "",
+    copilotSummary: {
+      situation: quickSummary?.situation || "",
+      block: quickSummary?.block || "",
+      strategy: quickSummary?.strategy || "",
+      nextAction: quickSummary?.nextAction || "",
+      owner: quickSummary?.owner || "",
 
-currentSolution: resolvedOrientation,
-targetDate: targetDate || "",
-targetDateStatus: targetDateStatus || "estimée",
+      currentSolution: resolvedOrientation,
+      targetDate: targetDate || "",
+      targetDateStatus: targetDateStatus || "estimée",
 
-selectedOrientation: selectedOrientation || "",
-orientationPlanB: orientationPlanB || "",
-orientationPlanC: orientationPlanC || "",
+      selectedOrientation: selectedOrientation || "",
+      orientationPlanB: orientationPlanB || "",
+      orientationPlanC: orientationPlanC || "",
 
-coordinationStatus: coordinationStatus || "",
-responsableActuel: coordination?.responsableActuel || "",
+      coordinationStatus: coordinationStatus || "",
+      responsableActuel: coordination?.responsableActuel || "",
 
-hadEligibility: hadEligibility || null,
-hdjStatus: hdjStatus || "",
-hdjTitle: hdjForm?.title || "",
-},
+      hadEligibility: hadEligibility || null,
 
-parcoursStatus: coordinationStatus || quickSummary?.situation || "",
+      hdjStatus: hdjStatus || "",
+      hdjTitle: hdjForm?.title || "",
+      hdjObjective: hdjForm?.objective || "",
+      hdjRequestedDate: hdjForm?.requestedDate || "",
+      hdjActs: safeArray(hdjForm?.acts),
+      hdjValidatedAt: hdjForm?.validatedAt || "",
+      hdjValidatedBy: hdjForm?.validatedBy || "",
+    },
 
-nextAction: quickSummary?.nextAction
-? {
-label: quickSummary.nextAction,
-owner: quickSummary?.owner || "",
-updatedAt: new Date().toISOString(),
-}
-: null,
+    hdj: {
+      status: hdjStatus || "",
+      title: hdjForm?.title || "",
+      actor: hdjForm?.actor || "",
+      objective: hdjForm?.objective || "",
+      requestedDate: hdjForm?.requestedDate || "",
+      recurrence: hdjForm?.recurrence || "",
+      frequency: hdjForm?.frequency || "",
+      frequencyCustom: hdjForm?.frequencyCustom || "",
+      duration: hdjForm?.duration || "",
+      durationCustom: hdjForm?.durationCustom || "",
+      customSessions: hdjForm?.customSessions || 1,
+      days: safeArray(hdjForm?.days),
+      acts: safeArray(hdjForm?.acts),
+      comment: hdjForm?.comment || "",
+      validatedAt: hdjForm?.validatedAt || "",
+      validatedBy: hdjForm?.validatedBy || "",
+    },
 
-actionPlan: safeArray(actions),
-resourceFollowUp: Object.values(resourceFollowUp || {}),
-decisionLog: safeArray(decisionLog),
-};
+    parcoursStatus: coordinationStatus || quickSummary?.situation || "",
+
+    nextAction: quickSummary?.nextAction
+      ? {
+          label: quickSummary.nextAction,
+          owner: quickSummary?.owner || "",
+          updatedAt: new Date().toISOString(),
+        }
+      : null,
+
+    actionPlan: safeArray(actions),
+    resourceFollowUp: Object.values(resourceFollowUp || {}),
+    decisionLog: safeArray(decisionLog),
+  };
 }
 
 function daysBetween(a, b) {
@@ -821,7 +1065,7 @@ raw === "green"
 ? "Tension modérée"
 : raw === "red"
 ? "Saturé"
-: "À vérifier",
+: "Disponibilité à vérifier",
 };
 }
 
@@ -921,15 +1165,18 @@ return ["HAD", "EHPAD", "SSR / SMR", "Aide à domicile"];
 function getPlanCOptions(orientation) {
 switch (orientation) {
 case "USP / Soins palliatifs":
-return ["Aide à domicile", "ASE / social", "Hébergement temporaire"];
+return ["Aide à domicile", "DAC / coordination", "Hébergement temporaire"];
 case "EHPAD":
-return ["Retour domicile IDEL", "Aide à domicile", "ASE / social"];
+return ["Retour domicile IDEL", "Aide à domicile", "Aide sociale adulte"];
 case "HAD":
-return ["ASE / social", "Aide à domicile", "Retour domicile IDEL"];
+return ["DAC / coordination", "Aide à domicile", "Retour domicile IDEL"];
+case "ASE / PMI":
+return ["Équipe mobile enfant", "CMPEA / pédopsy", "Hébergement enfant"];
 default:
-return ["Retour domicile IDEL", "Aide à domicile", "ASE / social", "Hébergement temporaire"];
+return ["Retour domicile IDEL", "Aide à domicile", "DAC / coordination", "Hébergement temporaire"];
 }
 }
+
 
 function buildContextualForms(keywords) {
 const normalized = safeArray(keywords).map(normalize);
@@ -946,26 +1193,7 @@ if (has("precarite") || has("droits sociaux")) result.push("aide_exceptionnelle"
 return uniq(result);
 }
 
-function findSimilarHdjModels(keywords) {
-const safeKeywords = safeArray(keywords).map(normalize);
 
-return safeArray(HDJ_LIBRARY)
-.map((model) => {
-const modelKeywords = safeArray(model.triggers || model.keywords).map(normalize);
-
-const commonKeywords = modelKeywords.filter((k) =>
-safeKeywords.some((kw) => kw.includes(k) || k.includes(kw))
-);
-
-return {
-...model,
-similarity: commonKeywords.length,
-commonKeywords,
-};
-})
-.filter((m) => m.similarity > 0)
-.sort((a, b) => b.similarity - a.similarity);
-}
 
 function computeComplexity({ keywords, actions, resourceFollowUp, dischargeType, exchanges }) {
 if (dischargeType === "simple") {
@@ -1147,8 +1375,68 @@ id: `suggested_kw_${index}_${normalizeKeywordLabel(item.label)}`,
 ...item,
 }));
 }
+
+function isPediatricPatient(patient) {
+const service = String(patient?.service || patient?.serviceCode || "")
+.toLowerCase()
+.normalize("NFD")
+.replace(/[\u0300-\u036f]/g, "");
+
+const age = Number(patient?.age);
+
+return (
+age < 18 ||
+service.includes("pediatr") ||
+service.includes("neonat") ||
+service.includes("enfant")
+);
+}
+
+
 function getInitialOrientationFromPatient(patient) {
 const structured = patient?.structuredIntake || {};
+const isPediatric = isPediatricPatient(patient);
+
+// =====================
+// PÉDIATRIE PRIORITAIRE
+// =====================
+if (isPediatric) {
+if (structured?.social?.protectionJuridique) {
+return "ASE / PMI";
+}
+
+if (
+structured?.clinical?.troubleComportement ||
+structured?.clinical?.souffrancePsychique
+) {
+return "HDJ pédopsy";
+}
+
+if (
+structured?.clinical?.retardDeveloppement ||
+structured?.clinical?.troubleNeuroDev
+) {
+return "CAMSP";
+}
+
+if (
+structured?.clinical?.malEtre ||
+structured?.social?.isolement
+) {
+return "MDA / adolescent";
+}
+
+if (structured?.sortie?.retourDomicile) {
+return "Retour domicile IDEL";
+}
+
+// fallback pédiatrique par défaut
+return "ASE / PMI";
+}
+
+// =====================
+// ADULTE / GÉRIATRIE
+// =====================
 
 if (patient?.copilotSummary?.selectedOrientation) {
 return patient.copilotSummary.selectedOrientation;
@@ -1166,20 +1454,36 @@ if (patient?.orientation) {
 return patient.orientation;
 }
 
-if (patient?.derivedOrientations?.[0]?.label) {
-return patient.derivedOrientations[0].label;
+if (patient?.derivedOrientations?.length) {
+const firstValid = patient.derivedOrientations.find(
+(o) => o.label && o.label !== "DAC" && o.label !== "DAC / coordination"
+);
+
+if (firstValid) {
+if (firstValid.label === "ASE / social") {
+return isPediatric ? "ASE / PMI" : "DAC / coordination";
+}
+return firstValid.label;
+}
 }
 
-if (structured?.social?.isolementSocial && structured?.securite?.logementInadapte) {
-return "ASE / social";
-}
-
-if (structured?.gir?.passageIDE?.oui) {
-return "Retour domicile IDEL";
+if (
+structured?.social?.isolementSocial &&
+structured?.securite?.logementInadapte
+) {
+return "DAC / coordination";
 }
 
 if (structured?.social?.protectionJuridique) {
-return "ASE / social";
+return "Aide sociale adulte";
+}
+
+if (structured?.sortie?.retourDomicile) {
+return "Retour domicile simple";
+}
+
+if (structured?.soins?.ide || structured?.gir?.passageIDE?.oui) {
+return "Retour domicile IDEL";
 }
 
 if (
@@ -1233,6 +1537,13 @@ patient?.copilotSummary?.targetDateStatus ||
 ? "estimée"
 : "estimée"),
 
+dischargePlannedDate: patient?.copilotState?.dischargePlannedDate || "",
+dischargePlannedTime: patient?.copilotState?.dischargePlannedTime || "",
+dischargePlannedAt:
+patient?.copilotState?.dischargePlannedAt ||
+patient?.dischargePlanning?.dischargePlannedAt ||
+"",
+
 orientationPlanB:
 patient?.copilotSummary?.orientationPlanB ||
 patient?.dischargePlanning?.planB ||
@@ -1271,9 +1582,9 @@ orientationSuggestions.alternative2 ||
 },
 
 dischargeType: "simple",
-isMedicallyReady: false,
 isDischarged: false,
-medicalReadyDate: "",
+isMedicallyReady: Boolean(patient?.dateSortantMedicalement),
+medicalReadyDate: patient?.dateSortantMedicalement || "",
 
 commune: patient?.commune || patient?.ville || "",
 
@@ -1418,8 +1729,39 @@ COMPONENT
 ========================= */
 
 export default function CopiloteLayout({ patientId }) {
+
+  const {
+  getPatientById,
+  saveCopilotState,
+  syncCopilotToPatient,
+  updatePatient,
+  resources,
+} = usePatientSimulation();
   const navigate = useNavigate();
 const location = useLocation();
+
+
+const combineDateAndTime = (date, time) => {
+if (!date) return "";
+if (!time) return `${date}T00:00:00`;
+return `${date}T${time}:00`;
+};
+
+const formatPlannedDateTime = (value) => {
+if (!value) return "Non définie";
+const date = new Date(value);
+if (Number.isNaN(date.getTime())) return "Non définie";
+
+return date.toLocaleString("fr-FR", {
+day: "2-digit",
+month: "2-digit",
+year: "numeric",
+hour: "2-digit",
+minute: "2-digit",
+});
+};
+
+
 
 
 
@@ -1429,12 +1771,8 @@ const location = useLocation();
   // =========================================================
     
   
-  const {
-    getPatientById,
-    saveCopilotState,
-    syncCopilotToPatient,
-    resources,
-  } = usePatientSimulation();
+
+
 
   const patient = getPatientById(patientId);
   console.log("COPILOT PATIENT", patient);
@@ -1445,9 +1783,8 @@ console.log("DERIVED FREINS", patient?.derivedFreins);
 console.log("DERIVED CONSEQUENCES", patient?.derivedConsequences);
 console.log("NEXT ACTION", patient?.nextAction);
 
-const orientationEngine = useMemo(() => {
-return getOrientationSuggestionsFromPatient(patient);
-}, [patient]);
+
+
 
 const hdjRecommendation = useMemo(() => {
 return getHDJSuggestionsFromStructuredIntake(
@@ -1457,7 +1794,16 @@ patient?.structuredIntake || {}
  
 
 const entryDate = patient?.dateEntree || "2026-03-28";
-const avoidableDays = patient?.joursEvitables || 0;
+const avoidableDays = patient?.dateSortantMedicalement
+? Math.max(
+0,
+Math.floor(
+(new Date().getTime() -
+new Date(patient.dateSortantMedicalement).getTime()) /
+(1000 * 60 * 60 * 24)
+)
+)
+: 0;
 function formatDateShort(date) {
 if (!date) return "—";
 const d = new Date(date);
@@ -1502,9 +1848,43 @@ const initialCopilotState = useMemo(() => {
 const base = buildDefaultCopilotState(patient || {});
 const saved = patient?.copilotState || {};
 
+// 👉 recalcul propre de l’orientation
+const initialOrientation = getInitialOrientationFromPatient(patient);
+
+
+
 return {
 ...base,
 ...saved,
+
+// 🔥 FIX PRINCIPAL : on écrase toujours l’ancienne orientation
+selectedOrientation:
+saved.selectedOrientation ||
+patient?.copilotSummary?.selectedOrientation ||
+patient?.dischargePlanning?.solutionLabel ||
+patient?.solutionLabel ||
+patient?.orientation ||
+initialOrientation ||
+"",
+currentSolutionOverride:
+saved.currentSolutionOverride ||
+saved.selectedOrientation ||
+patient?.copilotSummary?.currentSolution ||
+patient?.copilotSummary?.selectedOrientation ||
+patient?.dischargePlanning?.solutionLabel ||
+patient?.solutionLabel ||
+patient?.orientation ||
+initialOrientation ||
+"",
+
+dischargePlannedDate:
+saved.dischargePlannedDate ?? base.dischargePlannedDate ?? "",
+
+dischargePlannedTime:
+saved.dischargePlannedTime ?? base.dischargePlannedTime ?? "",
+
+dischargePlannedAt:
+saved.dischargePlannedAt ?? base.dischargePlannedAt ?? "",
 
 activeSection: saved.activeSection || base.activeSection || "copilot",
 
@@ -1585,6 +1965,7 @@ pendingRefusalReason: "",
 pendingAbandonResourceId: "",
 pendingAbandonReason: "",
 lastDmsReminderAt: saved.lastDmsReminderAt || "",
+
 newKeyword: "",
 newKeywordForm: {
 label: "",
@@ -1595,11 +1976,20 @@ nature: "",
 
 
 
-
   // =========================================================
   // 3) STATE LOCAL
   // =========================================================
   const [state, setState] = useState(initialCopilotState);
+const lastPatientIdRef = useRef(null);
+
+useEffect(() => {
+if (!patient?.id) return;
+
+if (lastPatientIdRef.current !== patient.id) {
+lastPatientIdRef.current = patient.id;
+setState(initialCopilotState);
+}
+}, [patient?.id]);
   const [showPostitComposer, setShowPostitComposer] = useState(false);
 
 const [newPostit, setNewPostit] = useState({
@@ -1775,51 +2165,115 @@ at: new Date().toISOString(),
     });
   }, []);
 
-  const persistCopilot = useCallback(
-    (patch) => {
-      if (!patient?.id) return;
 
-      setState((prev) => {
-        const nextPatch = typeof patch === "function" ? patch(prev) : patch || {};
-        const next = { ...prev, ...nextPatch };
+const persistCopilot = useCallback((patch) => {
+setState((prev) => {
+const nextPatch = typeof patch === "function" ? patch(prev) : patch;
 
-        const sharedPayload = buildSharedPatientPayload({
-          quickSummary: computeQuickSummary(next),
-          targetDate: next.targetDate,
-          targetDateStatus: next.targetDateStatus,
-          selectedOrientation: next.selectedOrientation,
-          orientationPlanB: next.orientationPlanB,
-          orientationPlanC: next.orientationPlanC,
-          currentSolution: next.currentSolutionOverride || next.selectedOrientation,
-          coordination: next.coordination,
-          actions: next.actions,
-          resourceFollowUp: next.resourceFollowUp,
-          coordinationStatus: next.coordinationStatus,
-          hadEligibility: next.hadEligibility,
-          hdjForm: next.hdjForm,
-hdjStatus: next.hdjStatus,
-decisionLog: next.decisionLog,
-        });
+return {
+...prev,
+...nextPatch,
+};
+});
+}, []);
 
-        queueMicrotask(() => {
-          saveCopilotState(patient.id, next);
-          syncCopilotToPatient(patient.id, sharedPayload);
-        });
+const saveTimeoutRef = useRef(null);
+const didMountSaveRef = useRef(false);
 
-        return next;
-      });
-    },
-    [patient?.id, saveCopilotState, syncCopilotToPatient]
-  );
+useEffect(() => {
+if (!patient?.id || !state) return;
+
+// évite la sauvegarde au premier render
+if (!didMountSaveRef.current) {
+didMountSaveRef.current = true;
+return;
+}
+
+clearTimeout(saveTimeoutRef.current);
+
+saveTimeoutRef.current = setTimeout(() => {
+saveCopilotState(patient.id, state);
+
+const sharedPayload = buildSharedPatientPayload({
+quickSummary,
+targetDate: state.targetDate,
+targetDateStatus: state.targetDateStatus,
+selectedOrientation: state.selectedOrientation,
+orientationPlanB: state.orientationPlanB,
+orientationPlanC: state.orientationPlanC,
+currentSolution:
+state.currentSolutionOverride || state.selectedOrientation || "",
+coordination: state.coordination,
+actions: state.actions,
+resourceFollowUp: state.resourceFollowUp,
+coordinationStatus: state.coordinationStatus,
+hadEligibility: state.hadEligibility,
+hdjForm: state.hdjForm,
+hdjStatus: state.hdjStatus,
+decisionLog: state.decisionLog,
+});
+
+syncCopilotToPatient(patient.id, sharedPayload);
+}, 700);
+
+return () => clearTimeout(saveTimeoutRef.current);
+}, [patient?.id, state]);
 
 
 
 const activeKeywords = useMemo(() => {
-return uniqKeywordObjects([
+const manualKeywords = uniqKeywordObjects([
 ...safeArray(state.keywordsState?.selected),
 ...safeArray(state.keywordsState?.custom),
 ]);
-}, [state.keywordsState]);
+
+const autoKeywords = [
+patient?.service,
+patient?.pathologie,
+patient?.diagnostic,
+patient?.motifHospitalisation,
+patient?.orientation,
+patient?.solutionLabel,
+patient?.nom?.toLowerCase()?.includes("alzheimer") ? "alzheimer" : "",
+patient?.service?.toLowerCase()?.includes("alzheimer") ? "alzheimer" : "",
+patient?.service?.toLowerCase()?.includes("gériatr") ? "perte autonomie" : "",
+patient?.structuredIntake?.securite?.troublesCognitifs ? "trouble cognitif" : "",
+patient?.structuredIntake?.securite?.desorientation ? "désorientation" : "",
+patient?.structuredIntake?.social?.isolementSocial ? "isolement" : "",
+patient?.structuredIntake?.gir?.passageIDE?.oui ? "surveillance IDE" : "",
+]
+.filter(Boolean)
+.map((label, index) => ({
+id: `auto_kw_${index}_${normalizeKeywordLabel(label)}`,
+label,
+nature: "auto",
+source: "patient",
+}));
+
+return uniqKeywordObjects([...manualKeywords, ...autoKeywords]);
+}, [state.keywordsState, patient]);
+
+const orientationEngine = useMemo(() => {
+const keywordSuggestion =
+computeOrientationSuggestionsFromKeywords(activeKeywords, patient)
+
+
+if (keywordSuggestion?.main) {
+return {
+primary: keywordSuggestion.main,
+reasons: keywordSuggestion.ranked?.[0]
+? [keywordSuggestion.ranked[0].label]
+: [],
+alternatives: [
+keywordSuggestion.alternative1,
+keywordSuggestion.alternative2,
+].filter(Boolean),
+scores: keywordSuggestion.ranked || [],
+};
+}
+
+return getOrientationSuggestionsFromPatient(patient);
+}, [patient, activeKeywords]);
 
 const activeKeywordLabels = useMemo(() => {
 return activeKeywords.map((item) => item.label);
@@ -1829,10 +2283,9 @@ const suggestedKeywords = useMemo(() => {
 return uniqKeywordObjects(state.keywordsState?.suggested || []);
 }, [state.keywordsState]);
 
-  const orientationSuggestions = useMemo(() => {
-    return computeOrientationSuggestionsFromKeywords(activeKeywords);
-  }, [activeKeywords]);
-
+ const orientationSuggestions = useMemo(() => {
+return computeOrientationSuggestionsFromKeywords(activeKeywords, patient);
+}, [activeKeywords, patient]);
   // =========================================================
 // 7) AUTRES DONNÉES DÉRIVÉES
 // =========================================================
@@ -1939,14 +2392,19 @@ if (!state.selectedOrientation) return [];
 return visibleResources.slice(0, 3);
 }, [state.selectedOrientation, visibleResources]);
 
+
 const similarHdj = useMemo(() => {
-const matched = findSimilarHdjModels(activeKeywordLabels || []);
+if (!activeKeywordLabels?.length) return [];
 
-if (matched.length > 0) return matched;
+return findSimilarHdjModels(
+activeKeywordLabels,
+patient
+).slice(0, 3);
+}, [activeKeywordLabels.join("|"), patient?.id]);
 
-// fallback 👉 toujours afficher des modèles
-return safeArray(HDJ_LIBRARY).slice(0, 3);
-}, [activeKeywordLabels]);
+
+
+
 const demandCounters = useMemo(
 () => ({
 relancer: Object.values(state.resourceFollowUp || {}).filter(
@@ -2545,27 +3003,28 @@ currentUser.name
     });
   };
 
-  const removeActiveKeyword = (keywordLabel) => {
-    persistCopilot((prev) => {
-      const nextKeywordsState = {
-        ...(prev.keywordsState || {}),
-        suggested: safeArray(prev.keywordsState?.suggested),
-        selected: safeArray(prev.keywordsState?.selected).filter(
-          (item) =>
-            normalizeKeywordLabel(item.label) !== normalizeKeywordLabel(keywordLabel)
-        ),
-        custom: safeArray(prev.keywordsState?.custom).filter(
-          (item) =>
-            normalizeKeywordLabel(item.label) !== normalizeKeywordLabel(keywordLabel)
-        ),
-      };
+const removeActiveKeyword = (keywordLabel) => {
+const normalized = normalizeKeywordLabel(keywordLabel);
 
-      return {
-        keywordsState: nextKeywordsState,
-        keywords: syncKeywordsToLegacy(nextKeywordsState),
-      };
-    });
-  };
+setState((prev) => {
+const nextKeywordsState = {
+...(prev.keywordsState || {}),
+suggested: safeArray(prev.keywordsState?.suggested),
+selected: safeArray(prev.keywordsState?.selected).filter(
+(item) => normalizeKeywordLabel(item.label) !== normalized
+),
+custom: safeArray(prev.keywordsState?.custom).filter(
+(item) => normalizeKeywordLabel(item.label) !== normalized
+),
+};
+
+return {
+...prev,
+keywordsState: nextKeywordsState,
+keywords: syncKeywordsToLegacy(nextKeywordsState),
+};
+});
+};
 
   const addCustomKeyword = () => {
     const label = String(state.newKeywordForm?.label || "").trim();
@@ -3376,7 +3835,7 @@ Ouvrir vue patient
 <button
 type="button"
 style={styles.secondaryBtn}
-onClick={() => scrollToSection("section-actions")}
+onClick={() => scrollToSection("section-demande")}
 >
 Aller aux actions
 </button>
@@ -3488,743 +3947,706 @@ border: "1px solid #bfdbfe",
 COPILOT TOP
 ========================= */}
 <section
-id="section-copilot"
+  id="section-copilot"
+  style={{
+    ...styles.card,
+    scrollMarginTop: 100,
+    display: state.activeSection === "copilot" ? "grid" : "none",
+  }}
+>
+  <div style={styles.copilotHero}>
+    <div>
+      <div style={styles.infoLabel}>Vue globale</div>
+      <div style={styles.copilotHeroTitle}>
+        {currentSolution || state.selectedOrientation || "Orientation à définir"}
+      </div>
+      <div style={styles.smallNote}>
+        {quickSummary.sentence || "Lecture rapide de la situation actuelle."}
+      </div>
+    </div>
+
+    <div style={styles.rowWrap}>
+      <span style={tagStyle(quickSummary.tone || "blue")}>
+        {quickSummary.block || "Aucun blocage majeur"}
+      </span>
+      <span style={tagStyle(complexity.color)}>
+        Complexité {complexity.label}
+      </span>
+      <span style={tagStyle(lengthOfStay >= 10 ? "amber" : "green")}>
+        Séjour J+{lengthOfStay}
+      </span>
+    </div>
+  </div>
+
+  <div style={styles.grid3}>
+    <div style={styles.fieldBlock}>
+      <label style={styles.label}>Pilote du parcours</label>
+      <select
+        value={state.coordination?.responsableActuel || ""}
+        onChange={(e) =>
+          persistCopilot((prev) => ({
+            coordination: {
+              ...(prev.coordination || {}),
+              responsableActuel: e.target.value,
+            },
+          }))
+        }
+        style={styles.selectSmall}
+      >
+        <option value="">Sélectionner</option>
+        {serviceAgents.map((agent) => (
+          <option key={agent.id} value={agent.name}>
+            {agent.name}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div style={styles.fieldBlock}>
+      <label style={styles.label}>Médecin référent</label>
+      <select
+        value={state.coordination?.medecin || ""}
+        onChange={(e) =>
+          persistCopilot((prev) => ({
+            coordination: {
+              ...(prev.coordination || {}),
+              medecin: e.target.value,
+            },
+          }))
+        }
+        style={styles.selectSmall}
+      >
+        <option value="">Choisir un médecin</option>
+        {serviceDoctors.map((doctor) => (
+          <option key={doctor.id} value={doctor.name}>
+            {doctor.name}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div style={styles.infoMiniCard}>
+      <div style={styles.infoLabel}>Service</div>
+      <div style={styles.copilotStatValue}>{patient.service || "—"}</div>
+    </div>
+  </div>
+
+  <div style={styles.copilotKpiGrid}>
+    <div style={styles.copilotStatBox}>
+      <div style={styles.copilotStatLabel}>Entrée</div>
+      <div style={styles.copilotStatValue}>{formatDateShort(entryDate)}</div>
+    </div>
+
+    <div style={styles.copilotStatBox}>
+      <div style={styles.copilotStatLabel}>Date cible</div>
+      <div style={styles.copilotStatValue}>
+        {state.targetDate ? formatShortDate(state.targetDate) : "—"}
+      </div>
+    </div>
+
+    <div style={styles.copilotStatBox}>
+      <div style={styles.copilotStatLabel}>Demandes ouvertes</div>
+      <div style={styles.copilotStatValue}>
+        {
+          Object.values(state.resourceFollowUp || {}).filter((r) =>
+            ["draft", "sent", "waiting", "followup", "needs_clarification", "received", "programmed"].includes(r.status)
+          ).length
+        }
+      </div>
+    </div>
+
+<div
 style={{
-...styles.card,
-scrollMarginTop: 100,
-display: state.activeSection === "copilot" ? "grid" : "none",
+...styles.infoMiniCard,
+background: "#f8fafc",
+border: "1px solid #e5e7eb",
 }}
 >
-<div style={styles.sectionHeaderBlock}>
-<div>
-<div style={styles.cardTitle}>Vue globale</div>
-<div style={styles.smallNote}>
-Lecture rapide de la situation actuelle
-</div>
-</div>
-
-<div style={styles.pathSentence}>{quickSummary.sentence}</div>
-
-<div style={styles.rowWrap}>
-<span style={tagStyle("blue")}>
-{currentSolution || quickSummary.situation || "Orientation à définir"}
-</span>
-<span style={tagStyle(complexity.color)}>
-Complexité {complexity.label}
-</span>
-</div>
-</div>
-
-<div style={styles.copilotTopGrid}>
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Pilote du parcours</label>
-<select
-value={state.coordination?.responsableActuel || ""}
-onChange={(e) =>
-persistCopilot((prev) => ({
-coordination: {
-...(prev.coordination || {}),
-responsableActuel: e.target.value,
-},
-}))
-}
-style={styles.selectSmall}
->
-<option value="">Sélectionner</option>
-{serviceAgents.map((agent) => (
-<option key={agent.id} value={agent.name}>
-{agent.name}
-</option>
-))}
-</select>
-</div>
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Médecin référent</label>
-<select
-value={state.coordination?.medecin || ""}
-onChange={(e) =>
-persistCopilot((prev) => ({
-coordination: {
-...(prev.coordination || {}),
-medecin: e.target.value,
-},
-}))
-}
-style={styles.selectSmall}
->
-<option value="">Choisir un médecin</option>
-{serviceDoctors.map((doctor) => (
-<option key={doctor.id} value={doctor.name}>
-{doctor.name}
-</option>
-))}
-</select>
-</div>
-
-<div style={styles.copilotMetaRow}>
-<div style={styles.infoMiniCard}>
-<div style={styles.infoLabel}>Séjour</div>
-<div style={styles.infoMiniValue}>J+{lengthOfStay}</div>
-</div>
-
-<div style={styles.infoMiniCard}>
-<div style={styles.infoLabel}>Entrée</div>
-<div style={styles.infoMiniValue}>{formatDateShort(entryDate)}</div>
-</div>
-
-<div style={styles.infoMiniCard}>
 <div style={styles.infoLabel}>Jours évitables</div>
-<div style={styles.infoMiniValue}>
-{avoidableDays > 0 ? `${avoidableDays} j` : "—"}
-</div>
-</div>
-
-<div style={styles.infoMiniCard}>
-<div style={styles.infoLabel}>Service</div>
-<div style={styles.infoMiniValue}>{patient.service || "—"}</div>
-</div>
-</div>
-</div>
-
-
-<div style={styles.grid2}>
-<div
-style={{
-...styles.infoCard,
-...styles.alertCard,
-...(quickSummary.tone === "red"
-? styles.alertCardRed
-: quickSummary.tone === "amber"
-? styles.alertCardAmber
-: styles.alertCardGreen),
-}}
->
-<div style={styles.blockTitle}>Blocage principal</div>
-<div style={styles.alertMainText}>
-{quickSummary.block || "Aucun identifié"}
-</div>
-</div>
-
-<div style={{ ...styles.infoCard, ...styles.priorityCard }}>
-<div style={styles.cardSubTitle}>À faire maintenant</div>
-
-{recommendedNextAction?.sentence ? (
-<div style={styles.prioritySentence}>
-{recommendedNextAction.sentence}
-</div>
-) : null}
-
-{recommendedNextAction ? (
-<button
-type="button"
-onClick={() => {
-if (recommendedNextAction.section === "section-orientation") {
-scrollToSection("section-orientation", orientationRef);
-} else if (recommendedNextAction.section === "section-demandes") {
-scrollToSection("section-demandes", demandeRef);
-} else if (recommendedNextAction.section === "section-actions") {
-scrollToSection("section-actions", actionRef);
-} else {
-scrollToSection(recommendedNextAction.section);
-}
-}}
-style={styles.priorityButton}
->
-{recommendedNextAction.label}
-</button>
-) : (
-<div style={styles.smallNote}>Aucune priorité immédiate.</div>
-)}
-</div>
-
-<div style={styles.infoCard}>
-<div style={styles.cardSubTitle}>À anticiper</div>
-
-{anticipations.length > 0 ? (
-<div style={styles.stackXs}>
-{anticipations.map((item, index) => (
-<button
-key={`${item.label}_${index}`}
-type="button"
-onClick={() => {
-if (item.section === "section-orientation") {
-scrollToSection("section-orientation", orientationRef);
-} else if (item.section === "section-demandes") {
-scrollToSection("section-demandes", demandeRef);
-} else if (item.section === "section-actions") {
-scrollToSection("section-actions", actionRef);
-} else {
-scrollToSection(item.section);
-}
-}}
-style={styles.anticipationButton}
->
-{item.label}
-</button>
-))}
-</div>
-) : (
-<div style={styles.smallNote}>Aucun point à anticiper.</div>
-)}
-</div>
-
-<div style={styles.infoCard}>
-<div style={styles.cardHeader}>
-<div style={styles.cardSubTitle}>Post-its</div>
-</div>
-
-{visiblePostits.length === 0 ? (
-<div style={styles.smallNote}>Aucun post-it actif.</div>
-) : (
-visiblePostits.map((e) => (
-<div
-key={e.id}
-style={{
-...styles.inlinePostit,
-...getPostitsStyleByType(e.type),
-}}
->
-<div style={styles.postitHeader}>
-<strong>{e.type}</strong>
-
-<div style={styles.rowWrap}>
-{!e.read ? <span style={styles.postitNotifDot} /> : null}
-
-<button
-type="button"
-style={styles.postitActionBtn}
-onClick={() => togglePostitMinimized(e.id)}
->
-{e.isMinimized ? "+" : "–"}
-</button>
-
-<button
-type="button"
-style={styles.postitActionBtn}
-onClick={() => togglePostitOpen(e.id)}
->
-×
-</button>
-</div>
-</div>
-
-{!e.isMinimized ? (
-<>
-<div
-style={styles.postitText}
-onClick={() => markPostitAsRead(e.id)}
->
-{e.text}
-</div>
-
-<div style={styles.postitMeta}>
-{e.author}
-{e.createdAt ? ` · ${formatRelativeTime(e.createdAt)}` : ""}
-</div>
-
-<div style={styles.rowWrap}>
-<div style={styles.postitChip}>{e.status}</div>
-
-<button
-type="button"
-style={styles.secondaryBtn}
-onClick={() => movePostitToStatus(e.id, "À traiter")}
->
-À traiter
-</button>
-
-<button
-type="button"
-style={styles.secondaryBtn}
-onClick={() => movePostitToStatus(e.id, "En cours")}
->
-En cours
-</button>
-
-<button
-type="button"
-style={styles.secondaryBtn}
-onClick={() =>
-movePostitToStatus(e.id, "En attente de réponse")
-}
->
-En attente
-</button>
-
-<button
-type="button"
-style={styles.secondaryBtn}
-onClick={() => movePostitToStatus(e.id, "Clos")}
->
-Clos
-</button>
-</div>
-</>
-) : null}
-</div>
-))
-)}
-</div>
-</div>
-
-<div style={styles.infoCard}>
-<div style={styles.cardSubTitle}>Suivi du parcours</div>
-<div style={styles.smallNote}>Lecture rapide de l’état du parcours</div>
-
-<div style={styles.copilotStatsGrid}>
-<div style={styles.copilotStatBox}>
-<div style={styles.copilotStatLabel}>Actions en cours</div>
 <div style={styles.copilotStatValue}>
-{safeArray(state.actions).filter((a) => a.status !== "Réalisé").length}
+{patient?.dateSortantMedicalement
+? `${Math.max(
+0,
+Math.floor(
+(new Date().getTime() -
+new Date(patient.dateSortantMedicalement).getTime()) /
+(1000 * 60 * 60 * 24)
+)
+)} j`
+: "—"}
 </div>
 </div>
 
-<div style={styles.copilotStatBox}>
-<div style={styles.copilotStatLabel}>Demandes en attente</div>
-<div style={styles.copilotStatValue}>
-{Object.values(state.resourceFollowUp || {}).filter((r) =>
-[
-"draft",
-"sent",
-"waiting",
-"followup",
-"needs_clarification",
-"received",
-"programmed",
-].includes(r.status)
-).length}
-</div>
-</div>
 
-<div style={styles.copilotStatBox}>
-<div style={styles.copilotStatLabel}>Niveau de complexité</div>
-<div style={styles.copilotStatValue}>{complexity.label}</div>
-</div>
 
-<div style={styles.copilotStatBox}>
-<div style={styles.copilotStatLabel}>Durée de séjour</div>
-<div style={styles.copilotStatValue}>J+{lengthOfStay}</div>
-</div>
-</div>
-</div>
+    </div>
+  
 
-<div style={styles.decisionQualificationGrid}>
-{!isEditingDecision ? (
-<div style={styles.infoCard}>
-<div style={styles.cardHeader}>
-<div style={styles.cardSubTitle}>Décision de sortie</div>
-<button
-type="button"
-style={styles.secondaryBtn}
-onClick={() => setIsEditingDecision(true)}
->
-Modifier
-</button>
-</div>
+  <div style={styles.grid2}>
+    <div
+      style={{
+        ...styles.infoCard,
+        ...styles.alertCard,
+        ...(quickSummary.tone === "red"
+          ? styles.alertCardRed
+          : quickSummary.tone === "amber"
+          ? styles.alertCardAmber
+          : styles.alertCardGreen),
+      }}
+    >
+      <div style={styles.blockTitle}>Point de vigilance</div>
+      <div style={styles.alertMainText}>
+        {quickSummary.block || "Aucun blocage majeur identifié"}
+      </div>
 
-<div style={styles.decisionHero}>
-<div style={styles.decisionHeroLabel}>Orientation retenue</div>
-<div style={styles.decisionHeroValue}>
-{state.currentSolutionOverride ||
-state.selectedOrientation ||
-patient?.copilotSummary?.currentSolution ||
-patient?.dischargePlanning?.solutionLabel ||
-patient?.solutionLabel ||
-"Non définie"}
-</div>
-</div>
+      {recommendedNextAction ? (
+        <button
+          type="button"
+          style={styles.priorityButton}
+          onClick={() => {
+            if (recommendedNextAction.section === "section-orientation") {
+              scrollToSection("section-orientation", orientationRef);
+            } else if (recommendedNextAction.section === "section-demandes") {
+              scrollToSection("section-demandes", demandeRef);
+            } else {
+              scrollToSection(recommendedNextAction.section);
+            }
+          }}
+        >
+          {recommendedNextAction.label}
+        </button>
+      ) : null}
+    </div>
 
-{orientationEngine?.primary ? (
-<div style={styles.copilotSuggestionBox}>
-<div style={styles.copilotSuggestionLabel}>
-Suggestion du Copilot
-</div>
+    <div style={styles.infoCard}>
+      <div style={styles.cardSubTitle}>Décision de sortie</div>
 
-<div style={styles.copilotSuggestionMain}>
-{orientationEngine.primary}
-</div>
+      {!isEditingDecision ? (
+        <>
+          <div style={styles.decisionHero}>
+            <div style={styles.decisionHeroLabel}>Orientation retenue</div>
+            <div style={styles.decisionHeroValue}>
+              {state.currentSolutionOverride ||
+                state.selectedOrientation ||
+                patient?.copilotSummary?.currentSolution ||
+                patient?.dischargePlanning?.solutionLabel ||
+                patient?.solutionLabel ||
+                "Non définie"}
+            </div>
+          </div>
 
-{orientationEngine.reasons?.length > 0 ? (
-<div style={styles.rowWrap}>
-{orientationEngine.reasons.map((reason) => (
-<span
-key={reason}
-style={{
-display: "inline-block",
-background: "#eef2ff",
-color: "#3730a3",
-padding: "4px 10px",
-borderRadius: 999,
-fontSize: 11,
-fontWeight: 700,
-}}
->
-{reason}
-</span>
-))}
-</div>
-) : null}
+          <div style={styles.decisionMetaCompactGrid}>
+            <div style={styles.infoMiniCard}>
+              <div style={styles.infoLabel}>Date cible</div>
+              <div>
+                {state.targetDate ? formatShortDate(state.targetDate) : "Non définie"}
+              </div>
+            </div>
 
-{orientationEngine.alternative1 || orientationEngine.alternative2 ? (
-<div style={styles.copilotSuggestionAlt}>
-Alternatives :{" "}
-{[orientationEngine.alternative1, orientationEngine.alternative2]
-.filter(Boolean)
-.join(" · ")}
-</div>
-) : null}
-</div>
-) : null}
-
-<div style={styles.decisionMetaCompactGrid}>
-<div style={styles.infoMiniCard}>
-<div style={styles.infoLabel}>Date cible</div>
-<div>
-{state.targetDate
-? formatShortDate(state.targetDate)
-: patient?.copilotSummary?.targetDate
-? formatShortDate(patient.copilotSummary.targetDate)
-: patient?.dischargePlanning?.targetDateValidated
-? formatShortDate(patient.dischargePlanning.targetDateValidated)
-: patient?.dischargePlanning?.targetDateEnvisaged
-? formatShortDate(patient.dischargePlanning.targetDateEnvisaged)
-: "Non définie"}
-</div>
-</div>
+            <div style={styles.infoMiniCard}>
+              <div style={styles.infoLabel}>Statut</div>
+              <div>{state.targetDateStatus || "À définir"}</div>
+            </div>
 
 <div style={styles.infoMiniCard}>
-<div style={styles.infoLabel}>Statut date cible</div>
-<div>
-{state.targetDateStatus ||
-patient?.copilotSummary?.targetDateStatus ||
-patient?.dischargePlanning?.targetDateStatus ||
-"À définir"}
-</div>
-</div>
-
-<div style={styles.infoMiniCard}>
-<div style={styles.infoLabel}>Sortant médicalement</div>
-<div>{state.isMedicallyReady ? "Oui" : "Non"}</div>
+  <div style={styles.infoLabel}>Sortant médicalement</div>
+  <div>
+    {patient?.dateSortantMedicalement
+      ? `Oui · ${patient.dateSortantMedicalement}`
+      : "Non"}
+  </div>
 </div>
 
-<div style={styles.infoMiniCard}>
-<div style={styles.infoLabel}>Responsable</div>
-<div>
-{state.coordination?.responsableActuel ||
-patient?.copilotSummary?.responsableActuel ||
-patient?.nextAction?.owner ||
-"Non renseigné"}
-</div>
-</div>
-</div>
-</div>
-) : (
-<div style={styles.infoCard}>
-<div style={styles.cardSubTitle}>Modifier la décision</div>
+            <div style={styles.infoMiniCard}>
+              <div style={styles.infoLabel}>Responsable</div>
+              <div>{state.coordination?.responsableActuel || "Non renseigné"}</div>
+            </div>
+          </div>
 
-<div style={styles.grid3}>
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Type de sortie</label>
-<select
-value={state.dischargeType}
-onChange={(e) => persistCopilot({ dischargeType: e.target.value })}
-style={styles.selectSmall}
->
-<option value="simple">Sortie simple</option>
-<option value="coordination_legere">Coordination légère</option>
-<option value="complexe">Coordination complexe</option>
-</select>
-</div>
+          <button
+            type="button"
+            style={styles.secondaryBtn}
+            onClick={() => setIsEditingDecision(true)}
+          >
+            Modifier la décision
+          </button>
+        </>
+      ) : (
+        <>
+          <div style={styles.grid3}>
+            <div style={styles.fieldBlock}>
+              <label style={styles.label}>Type de sortie</label>
+              <select
+                value={state.dischargeType}
+                onChange={(e) => persistCopilot({ dischargeType: e.target.value })}
+                style={styles.selectSmall}
+              >
+                <option value="simple">Sortie simple</option>
+                <option value="coordination_legere">Coordination légère</option>
+                <option value="complexe">Coordination complexe</option>
+              </select>
+            </div>
 
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Date cible de sortie</label>
-<input
-type="date"
-value={state.targetDate}
-onChange={(e) => persistCopilot({ targetDate: e.target.value })}
-style={styles.inputSmall}
-/>
-</div>
+            <div style={styles.fieldBlock}>
+              <label style={styles.label}>Date cible</label>
+              <input
+                type="date"
+                value={state.targetDate}
+                onChange={(e) => persistCopilot({ targetDate: e.target.value })}
+                style={styles.inputSmall}
+              />
+            </div>
 
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Statut date cible</label>
-<select
-value={state.targetDateStatus}
-onChange={(e) =>
-persistCopilot({ targetDateStatus: e.target.value })
-}
-style={styles.selectSmall}
->
-{TARGET_STATUSES.map((status) => (
-<option key={status} value={status}>
-{status}
-</option>
-))}
-</select>
-</div>
-</div>
+            <div style={styles.fieldBlock}>
+              <label style={styles.label}>Statut date cible</label>
+              <select
+                value={state.targetDateStatus}
+                onChange={(e) => persistCopilot({ targetDateStatus: e.target.value })}
+                style={styles.selectSmall}
+              >
+                {TARGET_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-<label style={styles.rowWrap}>
-<input
-type="checkbox"
-checked={state.isMedicallyReady}
-onChange={(e) =>
-persistCopilot({
-isMedicallyReady: e.target.checked,
-medicalReadyDate: e.target.checked
-? new Date().toISOString().slice(0, 10)
-: "",
-})
-}
-/>
-<span>Sortant médicalement</span>
+            <div style={styles.fieldBlock}>
+              <label style={styles.label}>Date prévue de sortie</label>
+              <input
+                type="date"
+                value={state.dischargePlannedDate || ""}
+                onChange={(e) => {
+                  const nextDate = e.target.value;
+                  persistCopilot((prev) => ({
+                    dischargePlannedDate: nextDate,
+                    dischargePlannedAt: combineDateAndTime(
+                      nextDate,
+                      prev.dischargePlannedTime
+                    ),
+                  }));
+                }}
+                style={styles.inputSmall}
+              />
+            </div>
+
+            <div style={styles.fieldBlock}>
+              <label style={styles.label}>Heure prévue</label>
+              <input
+                type="time"
+                value={state.dischargePlannedTime || ""}
+                onChange={(e) => {
+                  const nextTime = e.target.value;
+                  persistCopilot((prev) => ({
+                    dischargePlannedTime: nextTime,
+                    dischargePlannedAt: prev.dischargePlannedDate
+                      ? combineDateAndTime(prev.dischargePlannedDate, nextTime)
+                      : "",
+                  }));
+                }}
+                style={styles.inputSmall}
+              />
+            </div>
+
+            <div style={styles.infoMiniCard}>
+              <div style={styles.infoLabel}>Sortie prévue</div>
+              <div>
+                {state.dischargePlannedAt
+                  ? formatDateTime(state.dischargePlannedAt)
+                  : "Non définie"}
+              </div>
+            </div>
+          </div>
+
+          <label style={styles.rowWrap}>
+  <input
+    type="checkbox"
+    checked={state.isMedicallyReady}
+    onChange={(e) => {
+      const checked = e.target.checked;
+      const today = new Date().toISOString().slice(0, 10);
+      const now = new Date().toISOString();
+
+      persistCopilot({
+        isMedicallyReady: checked,
+        medicalReadyDate: checked ? today : "",
+      });
+
+      updatePatient(patient.id, {
+        dateSortantMedicalement: checked ? today : "",
+        medicalReadyDate: checked ? today : "",
+        medicalReady: checked,
+        sortantMedical: checked,
+        medicalReadiness: {
+          ...(patient?.medicalReadiness || {}),
+          isMedicallyReady: checked,
+          activatedAt: checked ? now : "",
+        },
+      });
+    }}
+  />
+  <span>Sortant médicalement</span>
 </label>
 
-<div style={styles.rowWrap}>
-<button
-type="button"
-style={styles.primaryBtn}
-onClick={() => setIsEditingDecision(false)}
->
-Enregistrer
-</button>
+          <div style={styles.rowWrap}>
+            <button
+              type="button"
+              style={styles.primaryBtn}
+              onClick={() => setIsEditingDecision(false)}
+            >
+              Enregistrer
+            </button>
 
-<button
-type="button"
-style={styles.secondaryBtn}
-onClick={() => setIsEditingDecision(false)}
->
-Annuler
-</button>
-</div>
+            <button
+              type="button"
+              style={styles.secondaryBtn}
+              onClick={() => setIsEditingDecision(false)}
+            >
+              Annuler
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  </div>
+
+  <div style={styles.grid2}>
+    <div style={styles.infoCard}>
+      <div style={styles.cardSubTitle}>À anticiper</div>
+
+      {anticipations.length > 0 ? (
+        <div style={styles.stackXs}>
+          {anticipations.map((item, index) => (
+            <button
+              key={`${item.label}_${index}`}
+              type="button"
+              onClick={() => scrollToSection(item.section)}
+              style={styles.anticipationButton}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div style={styles.smallNote}>Aucun point à anticiper.</div>
+      )}
+    </div>
+
+    <div style={styles.infoCard}>
+      <div style={styles.cardSubTitle}>Suggestion Copilot</div>
+      {orientationEngine.reasons?.length > 0 && (
+<div style={{ marginTop: 10, fontSize: 13, color: "#475569" }}>
+<strong>Pourquoi cette orientation ?</strong>
+
+<ul style={{ marginTop: 6, paddingLeft: 18 }}>
+{orientationEngine.reasons.map((reason) => (
+<li key={reason}>{reason}</li>
+))}
+</ul>
 </div>
 )}
 
-<div style={styles.infoCard}>
-<div style={styles.cardHeader}>
-<div style={styles.cardSubTitle}>Qualification</div>
-<div style={styles.cardHeaderSpacer} />
-</div>
+      {orientationEngine?.primary ? (
+        <div style={styles.copilotSuggestionBox}>
+          <div style={styles.copilotSuggestionLabel}>Orientation suggérée</div>
+          <div style={styles.copilotSuggestionMain}>
+            {orientationEngine.primary}
+          </div>
 
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Mots-clés suggérés par le recueil</label>
+          {orientationEngine.reasons?.length > 0 ? (
+            <div style={styles.rowWrap}>
+              {orientationEngine.reasons.map((reason) => (
+                <span key={reason} style={styles.badge}>
+                  {reason}
+                </span>
+              ))}
+            </div>
+          ) : null}
 
-{suggestedKeywords.length === 0 ? (
-<div style={styles.smallNote}>Aucune suggestion automatique.</div>
-) : (
-<div style={styles.stack}>
-{Object.entries(groupedSuggestedKeywords).map(([nature, items]) => (
-<div key={nature} style={styles.fieldBlock}>
-<div style={styles.groupTitle}>{nature}</div>
-<div style={styles.keywordWrap}>
-{items.map((item) => {
-const active = activeKeywords.some(
-(kw) =>
-normalizeKeywordLabel(kw.label) ===
-normalizeKeywordLabel(item.label)
-);
+          {orientationEngine.alternative1 || orientationEngine.alternative2 ? (
+            <div style={styles.copilotSuggestionAlt}>
+              Alternatives :{" "}
+              {[orientationEngine.alternative1, orientationEngine.alternative2]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          ) : null}
 
-return (
-<button
-key={item.id}
-type="button"
-onClick={() => toggleSuggestedKeyword(item)}
-style={{
-...styles.keywordChip,
-...(active ? styles.keywordChipActive : {}),
+          <button
+            type="button"
+            style={styles.secondaryBtn}
+            onClick={() => scrollToSection("section-orientation")}
+          >
+            Aller à l’orientation
+          </button>
+        </div>
+      ) : (
+        <div style={styles.smallNote}>Aucune suggestion automatique disponible.</div>
+      )}
+    </div>
+  </div>
+
+  <div style={styles.grid2}>
+    <div style={styles.infoCard}>
+      <div style={styles.cardHeader}>
+        <div style={styles.cardSubTitle}>Post-its actifs</div>
+        <span style={styles.badge}>{visiblePostits.length}</span>
+      </div>
+
+      {visiblePostits.length === 0 ? (
+        <div style={styles.smallNote}>Aucun post-it actif.</div>
+      ) : (
+        <div style={styles.stackXs}>
+          {visiblePostits.slice(0, 4).map((e) => (
+            <div
+              key={e.id}
+              style={{
+                ...styles.compactPostit,
+                ...getPostitsStyleByType(e.type),
+              }}
+            >
+              <div style={styles.postitHeader}>
+                <strong>{e.type}</strong>
+                <div style={styles.rowWrap}>
+                  {!e.read ? <span style={styles.postitNotifDot} /> : null}
+                  <button
+                    type="button"
+                    style={styles.postitActionBtn}
+                    onClick={() => togglePostitOpen(e.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+
+              <div style={styles.postitText} onClick={() => markPostitAsRead(e.id)}>
+                {e.text}
+              </div>
+
+              <div style={styles.postitMeta}>
+                {e.author}
+                {e.createdAt ? ` · ${formatRelativeTime(e.createdAt)}` : ""}
+              </div>
+
+              <div style={styles.rowWrap}>
+                <button
+                  type="button"
+                  style={styles.secondaryBtn}
+                  onClick={() => movePostitToStatus(e.id, "À traiter")}
+                >
+                  À traiter
+                </button>
+                <button
+                  type="button"
+                  style={styles.secondaryBtn}
+                  onClick={() => movePostitToStatus(e.id, "Clos")}
+                >
+                  Clos
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+
+    <div style={styles.infoCard}>
+      <div style={styles.cardSubTitle}>Qualification</div>
+
+      <div style={styles.fieldBlock}>
+        <label style={styles.label}>Mots-clés actifs</label>
+
+        {activeKeywords.length === 0 ? (
+          <div style={styles.smallNote}>Aucun mot-clé actif.</div>
+        ) : (
+          <div style={styles.keywordWrap}>
+            {activeKeywords.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+if (item.source === "patient" || item.source === "auto") return;
+
+removeActiveKeyword(item.label);
 }}
->
-{item.label}
-</button>
-);
-})}
-</div>
-</div>
-))}
-</div>
-)}
-</div>
+                style={{
+                  ...styles.keywordChip,
+                  ...styles.keywordChipActive,
+                }}
+              >
+              {item.label}
+{item.source === "patient" || item.nature === "auto" ? " auto" : " ×"}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Mots-clés actifs</label>
-<div style={{ marginTop: 4 }} />
+      {suggestedKeywords.length > 0 ? (
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>Suggestions du recueil</label>
+          <div style={styles.keywordWrap}>
+            {suggestedKeywords.slice(0, 8).map((item) => {
+              const active = activeKeywords.some(
+                (kw) =>
+                  normalizeKeywordLabel(kw.label) ===
+                  normalizeKeywordLabel(item.label)
+              );
 
-{activeKeywords.length === 0 ? (
-<div style={styles.smallNote}>Aucun mot-clé actif.</div>
-) : (
-<div style={styles.stack}>
-{Object.entries(groupedActiveKeywords).map(([nature, items]) => (
-<div key={nature} style={styles.fieldBlock}>
-<div style={styles.groupTitle}>{nature}</div>
-<div style={styles.keywordWrap}>
-{items.map((item) => (
-<button
-key={item.id}
-type="button"
-onClick={() => removeActiveKeyword(item.label)}
-style={{
-...styles.keywordChip,
-...styles.keywordChipActive,
-}}
->
-{item.label}
-</button>
-))}
-</div>
-</div>
-))}
-</div>
-)}
-</div>
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => toggleSuggestedKeyword(item)}
+                  style={{
+                    ...styles.keywordChip,
+                    ...(active ? styles.keywordChipActive : {}),
+                  }}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
-<div style={styles.fieldBlock}>
+      <div style={styles.fieldBlock}>
 <label style={styles.label}>Ajouter un mot-clé</label>
 
 <div style={styles.grid3}>
 <input
 value={state.newKeywordForm?.label || ""}
-onChange={(e) =>
-persistCopilot({
+onChange={(e) => {
+setState((prev) => ({
+...prev,
 newKeywordForm: {
-...(state.newKeywordForm || {}),
+...(prev.newKeywordForm || {}),
 label: e.target.value,
 },
-})
-}
+}));
+}}
 placeholder="Ex : aidant épuisé"
 style={styles.inputSmall}
 />
 
 <select
 value={state.newKeywordForm?.nature || ""}
-onChange={(e) =>
-persistCopilot({
+onChange={(e) => {
+setState((prev) => ({
+...prev,
 newKeywordForm: {
-...(state.newKeywordForm || {}),
+...(prev.newKeywordForm || {}),
 nature: e.target.value,
 },
-})
-}
-style={styles.selectSmall}
+}));
+}}
+style={styles.inputSmall}
 >
 <option value="">Nature obligatoire</option>
-{KEYWORD_NATURES.map((nature) => (
-<option key={nature} value={nature}>
-{nature}
-</option>
-))}
+<option value="medical">Médical</option>
+<option value="social">Social</option>
+<option value="autonomie">Autonomie</option>
+{/* ajoute tes autres natures si besoin */}
 </select>
 
 <button
 type="button"
-onClick={addCustomKeyword}
-style={styles.secondaryBtn}
+style={styles.primaryBtn}
+onClick={() => {
+const label = state.newKeywordForm?.label?.trim();
+const nature = state.newKeywordForm?.nature;
+
+if (!label || !nature) return;
+
+setState((prev) => ({
+...prev,
+keywordsState: {
+...(prev.keywordsState || {}),
+custom: [
+...safeArray(prev.keywordsState?.custom),
+{
+id: `custom_${Date.now()}`,
+label,
+nature,
+source: "manual",
+},
+],
+},
+newKeywordForm: {
+label: "",
+nature: "",
+},
+}));
+}}
+
 >
 Ajouter
 </button>
 </div>
-</div>
 
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Exemples utiles</label>
-<div style={styles.keywordWrap}>
-{KEYWORD_EXAMPLES.map((item, index) => (
-<button
-key={`${item.label}_${index}`}
-type="button"
-onClick={() =>
-persistCopilot({
-newKeywordForm: {
-label: item.label,
-nature: item.nature,
-},
-})
-}
-style={styles.keywordChip}
->
-{item.label} · {item.nature}
-</button>
-))}
-</div>
-</div>
-</div>
-</div>
+      </div>
+    </div>
+  </div>
 </section>
 
 {/* =========================
 ORIENTATION
 ========================= */}
 <section
-id="section-orientation"
-style={{
-...styles.card,
-scrollMarginTop: 100,
-display: state.activeSection === "orientation" ? "grid" : "none",
-}}
+  id="section-orientation"
+  style={{
+    ...styles.card,
+    scrollMarginTop: 100,
+    display: state.activeSection === "orientation" ? "grid" : "none",
+  }}
 >
-<div
-style={{
-border: "1px solid #e2e8f0",
-borderRadius: 12,
-padding: 16,
-background: "#f8fafc",
-marginBottom: 16,
-}}
->
-<div style={{ marginBottom: 10, fontWeight: 600 }}>
-Décision rapide
-</div>
+  <div style={styles.cardHeader}>
+    <div style={styles.cardTitle}>Orientation</div>
+    {state.selectedOrientation ? (
+      <span style={tagStyle("blue")}>{state.selectedOrientation}</span>
+    ) : (
+      <span style={tagStyle("amber")}>À définir</span>
+    )}
+  </div>
 
-<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-{["Validation", "À discuter", "Urgent"].map((opt) => {
-const isActive = state.decisionHeroValue === opt;
+  <div style={styles.sectionBanner}>
+    <div style={styles.cardSubTitle}>Décision rapide</div>
+    <div style={styles.orientationChipWrap}>
+      {["Validation", "À discuter", "Urgent"].map((opt) => {
+        const isActive = state.decisionHeroValue === opt;
 
-return (
-<button
-key={opt}
-type="button"
-onClick={() =>
-persistCopilot({
-decisionHeroValue: opt,
-})
-}
-style={{
-padding: "6px 12px",
-borderRadius: 999,
-border: "1px solid #ccc",
-background: isActive
-? opt === "Urgent"
-? "#fee2e2"
-: opt === "À discuter"
-? "#fef9c3"
-: "#dbeafe"
-: "#fff",
-fontWeight: 600,
-cursor: "pointer",
-}}
->
-{opt}
-</button>
-);
-})}
-</div>
-</div>
+        return (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => persistCopilot({ decisionHeroValue: opt })}
+            style={{
+              ...styles.keywordChip,
+              ...(isActive ? styles.keywordChipActive : {}),
+              background: isActive
+                ? opt === "Urgent"
+                  ? "#fee2e2"
+                  : opt === "À discuter"
+                  ? "#fef3c7"
+                  : "#dbeafe"
+                : "#ffffff",
+            }}
+          >
+            {opt}
+          </button>
+        );
+      })}
+    </div>
+  </div>
 
-<div style={styles.cardHeader}>
-<div style={styles.cardTitle}>Orientation</div>
-{state.selectedOrientation ? (
-<span style={tagStyle("blue")}>{state.selectedOrientation}</span>
-) : (
-<span style={tagStyle("amber")}>À définir</span>
-)}
-</div>
+  <div style={styles.sectionBanner}>
+    <div style={styles.cardSubTitle}>Choisir une orientation cible</div>
 
-<div style={styles.sectionBanner}>
-<div style={styles.cardSubTitle}>Choisir une orientation cible</div>
-
-<div style={styles.orientationChipWrap}>
-{[
+    <div style={styles.orientationChipWrap}>
+      {[
+        "Retour domicile simple",
 "Retour domicile IDEL",
 "HAD",
 "EHPAD",
@@ -4233,1665 +4655,2065 @@ cursor: "pointer",
 "HDJ",
 "USP / Soins palliatifs",
 "Aide à domicile",
-"ASE / social",
+
+...(isPediatricPatient(patient)
+? [
+"HDJ pédopsy",
+"CMPEA / pédopsy",
+"MDA / adolescent",
+"CAMSP",
+"ASE / PMI",
+"Équipe mobile enfant",
+]
+: [
+"DAC / coordination",
+"Aide sociale adulte",
+"ESMS / foyer",
+]),
+
 ].map((item) => (
-<button
-ref={item === "HAD" ? orientationRef : null}
-key={item}
-type="button"
-style={{
-...styles.orientationChip,
-...(state.selectedOrientation === item
-? styles.orientationChipActive
-: {}),
+
+        <button
+          ref={item === "HAD" ? orientationRef : null}
+          key={item}
+          type="button"
+          style={{
+            ...styles.orientationChip,
+            ...(state.selectedOrientation === item
+              ? styles.orientationChipActive
+              : {}),
+          }}
+         onClick={() => {
+setState((prev) => ({
+...prev,
+selectedOrientation: item,
+}));
 }}
-onClick={() => handleOrientationSelect(item)}
->
-{item}
-</button>
-))}
-</div>
-</div>
+        >
+          {item}
+        </button>
+      ))}
+    </div>
+  </div>
 
-{state.selectedOrientation === "HDJ" ? (
-<div style={styles.sectionBanner}>
-<div style={styles.cardSubTitle}>Orientation HDJ retenue</div>
+  {state.selectedOrientation === "HDJ" ? (
+    <div style={styles.sectionBanner}>
+      <div style={styles.cardSubTitle}>Orientation HDJ retenue</div>
+      <div style={styles.smallNote}>
+        Construire un parcours HDJ sur mesure pour sécuriser une sortie plus précoce.
+      </div>
 
-<div style={styles.smallNote}>
-Construire un parcours HDJ sur mesure pour sécuriser une sortie plus
-précoce et éviter une hospitalisation prolongée.
-</div>
+      <div style={styles.rowWrap}>
+        <button
+          type="button"
+          style={styles.primaryBtn}
+          onClick={() =>
+            persistCopilot({
+              showHdjForm: true,
+              activeSection: "hdj",
+            })
+          }
+        >
+          Construire le parcours HDJ
+        </button>
+      </div>
+    </div>
+  ) : null}
 
-<div style={styles.rowWrap}>
-<button
-type="button"
-style={styles.primaryBtn}
-onClick={() => {
-persistCopilot({
-showHdjForm: true,
-activeSection: "hdj",
-});
+  {state.selectedOrientation === "HAD" ? (
+    <div style={styles.infoCard}>
+      <div style={styles.cardSubTitle}>Critères HAD</div>
 
-setTimeout(() => {
-const el = document.getElementById("section-hdj");
-if (el) {
-const y = el.getBoundingClientRect().top + window.scrollY - 92;
-window.scrollTo({
-top: Math.max(y, 0),
-behavior: "smooth",
-});
-}
-}, 0);
-}}
->
-Construire le parcours HDJ
-</button>
-</div>
-</div>
+      <div style={styles.keywordWrap}>
+        {HAD_CRITERIA.map((criterion) => {
+          const active = safeArray(state.hadEligibility?.checkedItems).includes(
+            criterion
+          );
+
+          return (
+            <button
+              key={criterion}
+              type="button"
+              onClick={() => {
+                const current = safeArray(state.hadEligibility?.checkedItems);
+                const nextChecked = active
+                  ? current.filter((item) => item !== criterion)
+                  : [...current, criterion];
+
+                persistCopilot({
+                  hadEligibility: {
+                    ...state.hadEligibility,
+                    checkedItems: nextChecked,
+                    eligible: nextChecked.length > 0,
+                  },
+                });
+              }}
+              style={{
+                ...styles.keywordChip,
+                ...(active ? styles.keywordChipActive : {}),
+              }}
+            >
+              {criterion}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={styles.rowWrap}>
+        <span style={tagStyle(hadValidation?.tone || "red")}>
+          {hadValidation?.message || "Évaluation HAD en attente"}
+        </span>
+
+        <a
+          href="https://trajectoire.sante-ra.fr/Trajectoire/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={styles.linkBtn}
+        >
+          Ouvrir ViaTrajectoire
+        </a>
+      </div>
+    </div>
+  ) : null}
+
+  {state.selectedOrientation ? (
+    <div style={styles.grid2}>
+      <div style={styles.infoCard}>
+        <div style={styles.cardSubTitle}>Décision retenue</div>
+
+        <div style={styles.orientationMain}>{state.selectedOrientation}</div>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>Plan B</label>
+          <div style={styles.keywordWrap}>
+            {getPlanBOptions(state.selectedOrientation).map((opt) => {
+              const active = state.orientationPlanB === opt;
+
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() =>
+                    persistCopilot({
+                      orientationPlanB: active ? "" : opt,
+                    })
+                  }
+                  style={{
+                    ...styles.keywordChip,
+                    ...(active ? styles.keywordChipActive : {}),
+                  }}
+                >
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>Plan C</label>
+          <div style={styles.keywordWrap}>
+            {getPlanCOptions(state.selectedOrientation)
+              .filter((opt) => opt !== state.orientationPlanB)
+              .map((opt) => {
+                const active = state.orientationPlanC === opt;
+
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() =>
+                      persistCopilot({
+                        orientationPlanC: active ? "" : opt,
+                      })
+                    }
+                    style={{
+                      ...styles.keywordChip,
+                      ...(active ? styles.keywordChipActive : {}),
+                    }}
+                  >
+                    {opt}
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+
+        <div style={styles.rowWrap}>
+          <button
+            type="button"
+            style={styles.primaryBtn}
+            onClick={() => scrollToSection("section-ressources")}
+          >
+            Voir les ressources
+          </button>
+
+          <button
+            type="button"
+            style={styles.secondaryBtn}
+            onClick={() => scrollToSection("section-demandes")}
+          >
+            Gérer les demandes
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.infoCard}>
+        <div style={styles.cardSubTitle}>Dossiers administratifs</div>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>APA</label>
+          <div style={styles.keywordWrap}>
+            {DOSSIER_SUBTYPES.map((item) => {
+              const active = state.formsState?.apa?.subtype === item;
+
+              return (
+                <button
+                  key={`apa_${item}`}
+                  type="button"
+                  onClick={() =>
+                    persistCopilot((prev) => ({
+                      formsState: {
+                        ...(prev.formsState || {}),
+                        apa: {
+                          ...(prev.formsState?.apa || {}),
+                          status: "En cours",
+                          subtype: item,
+                          updatedAt: new Date().toISOString(),
+                        },
+                      },
+                      decisionLog: [
+                        buildAutoDecisionLogEntry(`APA : ${item}`, currentUser.name),
+                        ...safeArray(prev.decisionLog),
+                      ],
+                    }))
+                  }
+                  style={{
+                    ...styles.keywordChip,
+                    ...(active ? styles.keywordChipActive : {}),
+                  }}
+                >
+                  {item}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>MDPH</label>
+          <div style={styles.keywordWrap}>
+            {DOSSIER_SUBTYPES.map((item) => {
+              const active = state.formsState?.mdph?.subtype === item;
+
+              return (
+                <button
+                  key={`mdph_${item}`}
+                  type="button"
+                  onClick={() =>
+                    persistCopilot((prev) => ({
+                      formsState: {
+                        ...(prev.formsState || {}),
+                        mdph: {
+                          ...(prev.formsState?.mdph || {}),
+                          status: "En cours",
+                          subtype: item,
+                          updatedAt: new Date().toISOString(),
+                        },
+                      },
+                      decisionLog: [
+                        buildAutoDecisionLogEntry(`MDPH : ${item}`, currentUser.name),
+                        ...safeArray(prev.decisionLog),
+                      ],
+                    }))
+                  }
+                  style={{
+                    ...styles.keywordChip,
+                    ...(active ? styles.keywordChipActive : {}),
+                  }}
+                >
+                  {item}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.infoCard}>
+        <div style={styles.cardSubTitle}>Ressources suggérées</div>
+
+        {getOrientationPriority(state.selectedOrientation) ? (
+          <div style={styles.orientationPriorityBox}>
+            {getOrientationPriority(state.selectedOrientation)}
+          </div>
+        ) : null}
+
+{state.selectedOrientation === "ASE / PMI" ? (
+  <div style={styles.infoCard}>
+    <div style={styles.cardSubTitle}>Workflow ASE</div>
+
+    <div style={styles.smallNote}>
+      Parcours en deux temps : lettre de liaison hospitalière puis préparation
+      de l’instance ASE.
+    </div>
+
+    <div style={styles.stack}>
+      <div style={styles.previewRow}>
+        <div>
+          <div style={styles.previewTitle}>
+            1. Lettre de liaison ASE
+          </div>
+          <div style={styles.smallNote}>
+            Document rempli par l’hôpital pour formaliser la situation et la
+            demande de transmission.
+          </div>
+        </div>
+
+        <div style={styles.rowWrap}>
+          <span style={tagStyle(
+            state.formsState?.lettre_ase?.status === "Envoyé"
+              ? "green"
+              : state.formsState?.lettre_ase?.status === "En cours"
+              ? "blue"
+              : "amber"
+          )}>
+            {state.formsState?.lettre_ase?.status || "À faire"}
+          </span>
+
+          <button
+            type="button"
+            style={styles.primaryBtn}
+            onClick={() => openFormSmart("lettre_ase")}
+          >
+            Ouvrir
+          </button>
+
+          <button
+            type="button"
+            style={styles.secondaryBtn}
+            onClick={() =>
+              markFormStatus("lettre_ase", "Envoyé")
+            }
+          >
+            Marquer envoyé
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.previewRow}>
+        <div>
+          <div style={styles.previewTitle}>
+            2. Préparation instance ASE
+          </div>
+          <div style={styles.smallNote}>
+            Formulaire destiné à l’ASE pour préparer le passage en instance.
+          </div>
+        </div>
+
+        <div style={styles.rowWrap}>
+          <span style={tagStyle(
+            state.formsState?.instance_ase?.status === "Envoyé"
+              ? "green"
+              : state.formsState?.instance_ase?.status === "En cours"
+              ? "blue"
+              : "amber"
+          )}>
+            {state.formsState?.instance_ase?.status || "À faire"}
+          </span>
+
+          <button
+            type="button"
+            style={styles.primaryBtn}
+            onClick={() => openFormSmart("instance_ase")}
+          >
+            Ouvrir
+          </button>
+
+          <button
+            type="button"
+            style={styles.secondaryBtn}
+            onClick={() =>
+              markFormStatus("instance_ase", "Envoyé")
+            }
+          >
+            Marquer envoyé
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 ) : null}
 
-{state.selectedOrientation === "HAD" ? (
-<div style={styles.infoCard}>
-<div style={styles.cardSubTitle}>Critères HAD</div>
+        {orientationPreviewResources.length === 0 &&
+        !["EHPAD", "SSR / SMR", "HAD"].includes(state.selectedOrientation) ? (
+          <div style={styles.smallNote}>
+            Aucune ressource suggérée pour cette orientation.
+          </div>
+        ) : (
+          <div style={styles.stack}>
+            {orientationPreviewResources.map((r, index) => {
+              const uiStatus = getResourceUiStatus(r.id);
 
-<div style={styles.keywordWrap}>
-{HAD_CRITERIA.map((criterion) => {
-const active = safeArray(state.hadEligibility?.checkedItems).includes(
-criterion
-);
+              return (
+                <div
+                  key={r.id}
+                  style={{
+                    ...styles.previewRow,
+                    ...(index === 0 ? styles.previewRowHighlight : {}),
+                  }}
+                >
+                  <div>
+                    <div style={styles.previewTopRow}>
+                      <div style={styles.previewTitle}>{r.name}</div>
+                      <span style={tagStyle(uiStatus.tone)}>{uiStatus.label}</span>
+                    </div>
 
-return (
-<button
-key={criterion}
-type="button"
-onClick={() => {
-const current = safeArray(state.hadEligibility?.checkedItems);
-const nextChecked = active
-? current.filter((item) => item !== criterion)
-: [...current, criterion];
+                    <div style={styles.smallNote}>
+                      {r.family} · {r.subType}
+                    </div>
+                  </div>
 
-persistCopilot({
-hadEligibility: {
-...state.hadEligibility,
-checkedItems: nextChecked,
-eligible: nextChecked.length > 0,
-},
-});
-}}
-style={{
-...styles.keywordChip,
-...(active ? styles.keywordChipActive : {}),
-}}
->
-{criterion}
-</button>
-);
-})}
-</div>
+                  <div style={styles.rowWrap}>
+                    <button
+                      type="button"
+                      style={styles.secondaryBtn}
+                      onClick={() =>
+                        updateResource(r.id, {
+                          ...(state.resourceFollowUp?.[r.id] || {}),
+                          name: r.name,
+                          status: "sent",
+                          owner: currentUser.name,
+                          initiatedAt: new Date().toISOString(),
+                          lastReminderAt: "",
+                        })
+                      }
+                    >
+                      Initier
+                    </button>
 
-<div style={styles.rowWrap}>
-<span style={tagStyle(hadValidation?.tone || "red")}>
-{hadValidation?.message || "Évaluation HAD en attente"}
-</span>
+                    {r.formLink ? (
+                      <button
+                        type="button"
+                        style={styles.secondaryBtn}
+                        onClick={() => openExternal(r.formLink)}
+                      >
+                        Ouvrir
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
 
-<a
-href="https://trajectoire.sante-ra.fr/Trajectoire/"
-target="_blank"
-rel="noopener noreferrer"
-style={styles.linkBtn}
->
-Ouvrir ViaTrajectoire
-</a>
-</div>
-</div>
-) : null}
+            {["EHPAD", "SSR / SMR", "HAD"].includes(state.selectedOrientation) ? (
+              <div style={styles.previewRow}>
+                <div>
+                  <div style={styles.previewTitle}>ViaTrajectoire</div>
+                  <div style={styles.smallNote}>
+                    {state.selectedOrientation === "EHPAD"
+                      ? "Recherche de places EHPAD et orientation grand âge."
+                      : state.selectedOrientation === "SSR / SMR"
+                      ? "Recherche de places SSR / SMR et organisation de rééducation."
+                      : "Accès HAD via ViaTrajectoire en complément des critères d’éligibilité."}
+                  </div>
+                </div>
 
-{state.selectedOrientation ? (
-<div style={styles.grid2}>
-<div style={styles.infoCard}>
-<div style={styles.cardSubTitle}>Décision retenue</div>
+                <div style={styles.rowWrap}>
+                  <a
+                    href="https://trajectoire.sante-ra.fr/Trajectoire/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={styles.linkBtn}
+                  >
+                    Ouvrir
+                  </a>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
 
-<div style={styles.infoCard}>
-<div style={styles.cardSubTitle}>Dossiers administratifs</div>
+        <div style={styles.rowWrap}>
+          <button
+            type="button"
+            style={styles.secondaryBtn}
+            onClick={() => scrollToSection("section-ressources")}
+          >
+            Voir plus
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : (
+    <div style={styles.smallNote}>
+      Sélectionne d’abord une orientation pour afficher les ressources utiles.
+    </div>
+  )}
 
-<div style={styles.fieldBlock}>
-<label style={styles.label}>APA</label>
-<div style={styles.keywordWrap}>
-{DOSSIER_SUBTYPES.map((item) => {
-const active = state.formsState?.apa?.subtype === item;
-return (
-<button
-key={`apa_${item}`}
-type="button"
-onClick={() =>
-persistCopilot((prev) => ({
-formsState: {
-...(prev.formsState || {}),
-apa: {
-...(prev.formsState?.apa || {}),
-status: "En cours",
-subtype: item,
-updatedAt: new Date().toISOString(),
-},
-},
-decisionLog: [
-buildAutoDecisionLogEntry(
-`APA : ${item}`,
-currentUser.name
-),
-...safeArray(prev.decisionLog),
-],
-}))
-}
-style={{
-...styles.keywordChip,
-...(active ? styles.keywordChipActive : {}),
-}}
->
-{item}
-</button>
-);
-})}
-</div>
-</div>
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>MDPH</label>
-<div style={styles.keywordWrap}>
-{DOSSIER_SUBTYPES.map((item) => {
-const active = state.formsState?.mdph?.subtype === item;
-return (
-<button
-key={`mdph_${item}`}
-type="button"
-onClick={() =>
-persistCopilot((prev) => ({
-formsState: {
-...(prev.formsState || {}),
-mdph: {
-...(prev.formsState?.mdph || {}),
-status: "En cours",
-subtype: item,
-updatedAt: new Date().toISOString(),
-},
-},
-decisionLog: [
-buildAutoDecisionLogEntry(
-`MDPH : ${item}`,
-currentUser.name
-),
-...safeArray(prev.decisionLog),
-],
-}))
-}
-style={{
-...styles.keywordChip,
-...(active ? styles.keywordChipActive : {}),
-}}
->
-{item}
-</button>
-);
-})}
-</div>
-</div>
-</div>
-
-<div style={styles.orientationMain}>{state.selectedOrientation}</div>
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Plan B</label>
-<div style={styles.keywordWrap}>
-{getPlanBOptions(state.selectedOrientation).map((opt) => {
-const active = state.orientationPlanB === opt;
-
-return (
-<button
-key={opt}
-type="button"
-onClick={() =>
-persistCopilot({
-orientationPlanB: active ? "" : opt,
-})
-}
-style={{
-...styles.keywordChip,
-...(active ? styles.keywordChipActive : {}),
-}}
->
-{opt}
-</button>
-);
-})}
-</div>
-</div>
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Plan C</label>
-
-<div style={styles.keywordWrap}>
-{getPlanCOptions(state.selectedOrientation)
-.filter((opt) => opt !== state.orientationPlanB)
-.map((opt) => {
-const active = state.orientationPlanC === opt;
-
-return (
-<button
-key={opt}
-type="button"
-onClick={() =>
-persistCopilot({
-orientationPlanC: active ? "" : opt,
-})
-}
-style={{
-...styles.keywordChip,
-...(active ? styles.keywordChipActive : {}),
-}}
->
-{opt}
-</button>
-);
-})}
-</div>
-</div>
-
-
-<div style={styles.rowWrap}>
-<button
-type="button"
-style={styles.primaryBtn}
-onClick={() => scrollToSection("section-ressources")}
->
-Voir les ressources
-</button>
-
-<button
-type="button"
-style={styles.secondaryBtn}
-onClick={() => scrollToSection("section-demandes")}
->
-Gérer les demandes
-</button>
-</div>
-</div>
-
-<div style={styles.infoCard}>
-<div style={styles.cardSubTitle}>Ressources suggérées</div>
-
-{state.selectedOrientation ? (
-<div style={styles.orientationPriorityBox}>
-{getOrientationPriority(state.selectedOrientation)}
-</div>
-) : null}
-
-{orientationPreviewResources.length === 0 &&
-!["EHPAD", "SSR / SMR", "HAD"].includes(state.selectedOrientation) ? (
-<div style={styles.smallNote}>
-Aucune ressource suggérée pour cette orientation.
-</div>
-) : (
-<div style={styles.stack}>
-{orientationPreviewResources.map((r, index) => {
-const uiStatus = getResourceUiStatus(r.id);
-
-return (
-<div
-key={r.id}
-style={{
-...styles.previewRow,
-...(index === 0 ? styles.previewRowHighlight : {}),
-}}
->
-<div>
-<div style={styles.previewTopRow}>
-<div style={styles.previewTitle}>{r.name}</div>
-<span style={tagStyle(uiStatus.tone)}>
-{uiStatus.label}
-</span>
-</div>
-
-<div style={styles.smallNote}>
-{r.family} · {r.subType}
-</div>
-</div>
-
-<div style={styles.rowWrap}>
-<button
-type="button"
-style={styles.secondaryBtn}
-onClick={() =>
-updateResource(r.id, {
-...(state.resourceFollowUp?.[r.id] || {}),
-name: r.name,
-status: "sent",
-owner: currentUser.name,
-initiatedAt: new Date().toISOString(),
-lastReminderAt: "",
-})
-}
->
-Initier
-</button>
-
-{r.formLink ? (
-<button
-type="button"
-style={styles.secondaryBtn}
-onClick={() => openExternal(r.formLink)}
->
-Ouvrir
-</button>
-) : null}
-</div>
-</div>
-);
-})}
-
-{state.selectedOrientation === "EHPAD" ? (
-<div style={styles.previewRow}>
-<div>
-<div style={styles.previewTitle}>ViaTrajectoire</div>
-<div style={styles.smallNote}>
-Recherche de places EHPAD et orientation grand âge.
-</div>
-</div>
-
-<div style={styles.rowWrap}>
-<a
-href="https://trajectoire.sante-ra.fr/Trajectoire/"
-target="_blank"
-rel="noopener noreferrer"
-style={styles.linkBtn}
->
-Ouvrir
-</a>
-</div>
-</div>
-) : null}
-
-{state.selectedOrientation === "SSR / SMR" ? (
-<div style={styles.previewRow}>
-<div>
-<div style={styles.previewTitle}>ViaTrajectoire</div>
-<div style={styles.smallNote}>
-Recherche de places SSR / SMR et organisation de rééducation.
-</div>
-</div>
-
-<div style={styles.rowWrap}>
-<a
-href="https://trajectoire.sante-ra.fr/Trajectoire/"
-target="_blank"
-rel="noopener noreferrer"
-style={styles.linkBtn}
->
-Ouvrir
-</a>
-</div>
-</div>
-) : null}
-
-{state.selectedOrientation === "HAD" ? (
-<div style={styles.previewRow}>
-<div>
-<div style={styles.previewTitle}>ViaTrajectoire</div>
-<div style={styles.smallNote}>
-Accès HAD via ViaTrajectoire en complément des critères
-d’éligibilité.
-</div>
-</div>
-
-<div style={styles.rowWrap}>
-<a
-href="https://trajectoire.sante-ra.fr/Trajectoire/"
-target="_blank"
-rel="noopener noreferrer"
-style={styles.linkBtn}
->
-Ouvrir
-</a>
-</div>
-</div>
-) : null}
-</div>
-)}
-
-<div style={styles.rowWrap}>
-<button
-type="button"
-style={styles.secondaryBtn}
-onClick={() => scrollToSection("section-ressources")}
->
-Voir plus
-</button>
-</div>
-</div>
-</div>
-) : (
-<div style={styles.smallNote}>
-Sélectionne d’abord une orientation pour afficher les ressources utiles.
-</div>
-)}
-
-{state.selectedOrientation === "USP / Soins palliatifs" ? (
-<div style={styles.sectionBanner}>
-<div style={styles.cardSubTitle}>Accès USP</div>
-<div style={styles.rowWrap}>
-<button
-type="button"
-style={styles.primaryBtn}
-onClick={() => openExternal(FORM_LINKS.usp)}
->
-Ouvrir dossier USP
-</button>
-</div>
-</div>
-) : null}
+  {state.selectedOrientation === "USP / Soins palliatifs" ? (
+    <div style={styles.sectionBanner}>
+      <div style={styles.cardSubTitle}>Accès USP</div>
+      <div style={styles.rowWrap}>
+        <button
+          type="button"
+          style={styles.primaryBtn}
+          onClick={() => openExternal(FORM_LINKS.usp)}
+        >
+          Ouvrir dossier USP
+        </button>
+      </div>
+    </div>
+  ) : null}
 </section>
 {/* =========================
 RESSOURCES
 ========================= */}
 <section
-id="section-ressources"
-style={{
-...styles.card,
-scrollMarginTop: 100,
-display: state.activeSection === "ressources" ? "grid" : "none",
-}}
+  id="section-ressources"
+  style={{
+    ...styles.card,
+    scrollMarginTop: 100,
+    display: state.activeSection === "ressources" ? "grid" : "none",
+  }}
 >
-<div style={styles.cardHeader}>
-<div style={styles.cardTitle}>Ressources & parcours de sortie</div>
+  <div style={styles.cardHeader}>
+    <div style={styles.cardTitle}>Ressources & parcours de sortie</div>
 
-<div style={styles.rowWrap}>
-<span style={styles.badge}>{demandCounters.relancer} à relancer</span>
-<span style={styles.badge}>{demandCounters.attente} en attente</span>
-<span style={styles.badge}>{demandCounters.acceptees} acceptées</span>
-</div>
-</div>
+    <div style={styles.rowWrap}>
+      <span style={styles.badge}>{demandCounters.relancer} à relancer</span>
+      <span style={styles.badge}>{demandCounters.attente} en attente</span>
+      <span style={styles.badge}>{demandCounters.acceptees} acceptées</span>
+    </div>
+  </div>
 
-<input
-placeholder="Recherche ressource / territoire / mot-clé"
-value={state.resourceSearch}
-onChange={(e) => persistCopilot({ resourceSearch: e.target.value })}
-style={styles.input}
-/>
+  {/* ===================== WORKFLOW ASE ===================== */}
+  {state.selectedOrientation === "ASE / social" ? (
+    <div style={styles.infoCard}>
+      <div style={styles.cardSubTitle}>Workflow ASE</div>
 
-{state.resourceSearch ? (
+      <div style={styles.smallNote}>
+        Parcours en deux étapes : transmission hospitalière puis envoi au prestataire ASE.
+      </div>
+
+      <div style={styles.stack}>
+        {/* ETAPE 1 */}
+        <div style={styles.previewRow}>
+          <div>
+            <div style={styles.previewTitle}>1. Lettre de liaison ASE</div>
+            <div style={styles.smallNote}>
+              Document rempli par l’hôpital.
+            </div>
+          </div>
+
+          <div style={styles.rowWrap}>
+            <span
+              style={tagStyle(
+                state.formsState?.lettre_ase?.status === "Envoyé"
+                  ? "green"
+                  : state.formsState?.lettre_ase?.status === "En cours"
+                  ? "blue"
+                  : "amber"
+              )}
+            >
+              {state.formsState?.lettre_ase?.status || "À faire"}
+            </span>
+
+            <button
+              type="button"
+              style={styles.secondaryBtn}
+              onClick={() => openFormSmart("lettre_ase")}
+            >
+              Ouvrir
+            </button>
+
+            <button
+              type="button"
+              style={styles.primaryBtn}
+              onClick={() =>
+                persistCopilot((prev) => ({
+                  formsState: {
+                    ...(prev.formsState || {}),
+                    lettre_ase: {
+                      ...(prev.formsState?.lettre_ase || {}),
+                      status: "Envoyé",
+                      sentAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                    },
+                  },
+                  decisionLog: [
+                    buildAutoDecisionLogEntry(
+                      "Lettre ASE complétée et validée",
+                      currentUser.name
+                    ),
+                    ...safeArray(prev.decisionLog),
+                  ],
+                }))
+              }
+            >
+              Valider
+            </button>
+          </div>
+        </div>
+
+        {/* ETAPE 2 */}
+        <div style={styles.previewRow}>
+          <div>
+            <div style={styles.previewTitle}>2. Préparation instance ASE</div>
+            <div style={styles.smallNote}>
+              Envoi au prestataire externe pour préparation de l’instance.
+            </div>
+          </div>
+
+          <div style={styles.rowWrap}>
+            <span
+              style={tagStyle(
+                state.formsState?.instance_ase?.status === "Envoyé au prestataire"
+                  ? "green"
+                  : state.formsState?.instance_ase?.status === "En cours"
+                  ? "blue"
+                  : "amber"
+              )}
+            >
+              {state.formsState?.instance_ase?.status || "À faire"}
+            </span>
+
+            <button
+              type="button"
+              style={styles.secondaryBtn}
+              onClick={() => openFormSmart("instance_ase")}
+            >
+              Préparer
+            </button>
+
+            <button
+              type="button"
+              style={styles.primaryBtn}
+              onClick={() =>
+                persistCopilot((prev) => ({
+                  formsState: {
+                    ...(prev.formsState || {}),
+                    instance_ase: {
+                      ...(prev.formsState?.instance_ase || {}),
+                      status: "Envoyé au prestataire",
+                      sentAt: new Date().toISOString(),
+                      sentTo: "Prestataire externe ASE",
+                      updatedAt: new Date().toISOString(),
+                    },
+                  },
+                  resourceFollowUp: {
+                    ...(prev.resourceFollowUp || {}),
+                    ase_instance: {
+                      id: "ase_instance",
+                      name: "Préparation instance ASE",
+                      status: "waiting",
+                      owner: currentUser.name,
+                      sentAt: new Date().toISOString(),
+                      sentTo: "Prestataire externe ASE",
+                      nextStep: "Attente retour prestataire",
+                    },
+                  },
+                  decisionLog: [
+                    buildAutoDecisionLogEntry(
+                      "Préparation instance ASE envoyée au prestataire externe",
+                      currentUser.name
+                    ),
+                    ...safeArray(prev.decisionLog),
+                  ],
+                }))
+              }
+            >
+              Envoyer au prestataire
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null}
+
+  {/* ===================== RECHERCHE ===================== */}
+  <input
+    placeholder="Recherche ressource / territoire / mot-clé"
+    value={state.resourceSearch}
+    onChange={(e) => persistCopilot({ resourceSearch: e.target.value })}
+    style={styles.input}
+  />
+
+  {state.resourceSearch ? (
+    <div style={styles.smallNote}>
+      Recherche actuelle : {state.resourceSearch}
+    </div>
+  ) : null}
+
+  {/* ===================== LISTE RESSOURCES ===================== */}
+  <div style={styles.stack}>
+
+{state.selectedOrientation === "ASE / PMI" ? (
+<div style={styles.infoCard}>
+<div style={styles.cardSubTitle}>Signalement CRIP</div>
+
 <div style={styles.smallNote}>
-Recherche actuelle : {state.resourceSearch}
-</div>
-) : null}
-
-<div style={styles.stack}>
-{resourcesToShow.map((r) => {
-const demand = state.resourceFollowUp?.[r.id];
-const followMeta = getFollowMeta(demand);
-const availability = getAvailabilityBadge(r);
-
-return (
-<div key={r.id} style={styles.resourceCard}>
-<div style={styles.exchangeHead}>
-<div>
-<div style={styles.postitTitle}>{r.name}</div>
-<div style={styles.smallNote}>
-{r.family} · {r.subType} · {r.territory}
-</div>
-</div>
-
-<div style={styles.rowWrap}>
-<span style={tagStyle(followMeta.tone)}>
-{followMeta.label}
-</span>
-<span style={tagStyle(availability.tone)}>
-{availability.label}
-</span>
-</div>
-</div>
-
-<div style={styles.smallNote}>
-{r.contactPerson || "Contact non renseigné"} ·{" "}
-{r.phone || "Téléphone non renseigné"}
-{r.email ? ` · ${r.email}` : ""}
-</div>
-
-<div style={styles.grid3}>
-<div style={styles.infoMiniCard}>
-<div style={styles.infoLabel}>Conditions</div>
-<div>{r.conditions || "—"}</div>
-</div>
-
-<div style={styles.infoMiniCard}>
-<div style={styles.infoLabel}>Délai</div>
-<div>{r.delay || "—"}</div>
-</div>
-
-<div style={styles.infoMiniCard}>
-<div style={styles.infoLabel}>Référent</div>
-<div>{demand?.owner || "Non attribué"}</div>
-</div>
+À utiliser en cas de danger ou risque de danger pour un mineur.
+Transmission au Conseil Départemental (cellule CRIP).
 </div>
 
 <div style={styles.rowWrap}>
 <button
 type="button"
+style={styles.primaryBtn}
+onClick={() => openExternal(FORM_LINKS.crip)}
+>
+Faire un signalement CRIP
+</button>
+
+<button
+type="button"
+style={styles.secondaryBtn}
 onClick={() =>
-updateResource(r.id, {
-...(state.resourceFollowUp?.[r.id] || {}),
-name: r.name,
-status: "draft",
-})
+persistCopilot((prev) => ({
+formsState: {
+...(prev.formsState || {}),
+crip: {
+status: "Signalement en cours",
+updatedAt: new Date().toISOString(),
+},
+},
+decisionLog: [
+buildAutoDecisionLogEntry(
+"Signalement CRIP initié",
+currentUser.name
+),
+...safeArray(prev.decisionLog),
+],
+}))
 }
-style={styles.secondaryBtn}
 >
-Initier
+Tracer
 </button>
-
-{r.formLink ? (
-<button
-type="button"
-onClick={() => openExternal(r.formLink)}
-style={styles.secondaryBtn}
->
-{r.id === "usp_valognes" ? "Ouvrir dossier USP" : "Ouvrir"}
-</button>
+</div>
+</div>
 ) : null}
-</div>
-</div>
-);
-})}
-</div>
+
+
+
+    {resourcesToShow.map((r) => {
+      const demand = state.resourceFollowUp?.[r.id];
+      const followMeta = getFollowMeta(demand);
+      const availability = getAvailabilityBadge(r);
+
+      return (
+        <div key={r.id} style={styles.resourceCard}>
+          <div style={styles.exchangeHead}>
+            <div>
+              <div style={styles.postitTitle}>{r.name}</div>
+              <div style={styles.smallNote}>
+                {r.family} · {r.subType} · {r.territory}
+              </div>
+            </div>
+
+            <div style={styles.rowWrap}>
+              <span style={tagStyle(followMeta.tone)}>
+                {followMeta.label}
+              </span>
+              <span style={tagStyle(availability.tone)}>
+                {availability.label}
+              </span>
+            </div>
+          </div>
+
+          <div style={styles.smallNote}>
+            {r.contactPerson || "Contact non renseigné"} ·{" "}
+            {r.phone || "Téléphone non renseigné"}
+            {r.email ? ` · ${r.email}` : ""}
+          </div>
+
+          <div style={styles.grid3}>
+            <div style={styles.infoMiniCard}>
+              <div style={styles.infoLabel}>Conditions</div>
+              <div>{r.conditions || "—"}</div>
+            </div>
+
+            <div style={styles.infoMiniCard}>
+              <div style={styles.infoLabel}>Délai</div>
+              <div>{r.delay || "—"}</div>
+            </div>
+
+            <div style={styles.infoMiniCard}>
+              <div style={styles.infoLabel}>Référent</div>
+              <div>{demand?.owner || "Non attribué"}</div>
+            </div>
+          </div>
+
+          <div style={styles.rowWrap}>
+            <button
+              type="button"
+              onClick={() =>
+                updateResource(r.id, {
+                  ...(state.resourceFollowUp?.[r.id] || {}),
+                  name: r.name,
+                  status: "draft",
+                })
+              }
+              style={styles.secondaryBtn}
+            >
+              Initier
+            </button>
+
+            {r.formLink ? (
+              <button
+                type="button"
+                onClick={() => openExternal(r.formLink)}
+                style={styles.secondaryBtn}
+              >
+                {r.id === "usp_valognes"
+                  ? "Ouvrir dossier USP"
+                  : "Ouvrir"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      );
+    })}
+  </div>
 </section>
 
 {/* =========================
 HDJ
 ========================= */}
 <section
-id="section-hdj"
-style={{
-...styles.card,
-scrollMarginTop: 100,
-display: state.activeSection === "hdj" ? "grid" : "none",
-}}
+  id="section-hdj"
+  style={{
+    ...styles.card,
+    scrollMarginTop: 100,
+    display: state.activeSection === "hdj" ? "grid" : "none",
+  }}
 >
-<div style={styles.cardHeader}>
-<div style={styles.cardTitle}>Parcours HDJ</div>
-<div style={styles.rowWrap}>
-<span style={tagStyle("blue")}>Orientation HDJ</span>
-<span
-style={tagStyle(
-state.hdjStatus === "programmed"
-? "green"
-: state.hdjStatus === "received"
-? "blue"
-: state.hdjStatus === "validated"
-? "green"
-: "amber"
-)}
->
-{state.hdjStatus || "draft"}
-</span>
-</div>
-</div>
+  <div style={styles.cardHeader}>
+    <div style={styles.cardTitle}>Parcours HDJ</div>
 
-<div style={styles.sectionBanner}>
-<div style={styles.cardSubTitle}>Construire un parcours HDJ sur mesure</div>
-<div style={styles.smallNote}>
-Définir les objectifs, les actes, la fréquence, la date souhaitée et
-préparer un support propre pour le secrétariat.
-</div>
-</div>
+    <div style={styles.rowWrap}>
+      <span style={tagStyle("blue")}>Orientation HDJ</span>
+      <span
+        style={tagStyle(
+          state.hdjStatus === "programmed"
+            ? "green"
+            : state.hdjStatus === "received"
+            ? "blue"
+            : state.hdjStatus === "validated"
+            ? "green"
+            : state.hdjStatus === "sent"
+            ? "blue"
+            : state.hdjStatus === "sending"
+            ? "amber"
+            : "amber"
+        )}
+      >
+        {state.hdjStatus || "draft"}
+      </span>
+    </div>
+  </div>
 
-<div style={styles.rowWrap}>
-<button
-type="button"
-onClick={() =>
-persistCopilot({
-showHdjForm: !state.showHdjForm,
-activeSection: "hdj",
-})
-}
-style={styles.secondaryBtn}
->
-{state.showHdjForm
-? "Masquer le formulaire HDJ"
-: "Ouvrir le formulaire HDJ"}
-</button>
-</div>
+  <div style={styles.sectionBanner}>
+    <div style={styles.cardSubTitle}>Construire un parcours HDJ sur mesure</div>
+    <div style={styles.smallNote}>
+      Définir les objectifs, les actes, la fréquence, la date souhaitée et préparer un support propre pour le secrétariat.
+    </div>
+  </div>
+
+  <div style={styles.rowWrap}>
+    <button
+      type="button"
+      onClick={() =>
+        persistCopilot({
+          showHdjForm: !state.showHdjForm,
+          activeSection: "hdj",
+        })
+      }
+      style={styles.secondaryBtn}
+    >
+      {state.showHdjForm ? "Masquer le formulaire HDJ" : "Ouvrir le formulaire HDJ"}
+    </button>
+  </div>
 
 {similarHdj.length > 0 ? (
-<div style={styles.infoCard}>
-<div style={styles.cardSubTitle}>Modèles HDJ suggérés</div>
 
-<div style={styles.stack}>
-{similarHdj.slice(0, 3).map((model) => (
-<button
-key={model.id}
-type="button"
-style={{ ...styles.formRow, cursor: "pointer" }}
-onClick={() => handleApplyHdjModel(model)}
->
-<div>
-<div style={{ fontWeight: 800 }}>
-{model.title || model.label}
-</div>
-<div style={styles.smallNote}>
-{model.commonKeywords?.length > 0
-? `Mots-clés communs : ${model.commonKeywords.join(", ")}`
-: "Modèle HDJ disponible"}
-</div>
-</div>
-</button>
-))}
-</div>
-</div>
-) : null}
+    <div style={styles.infoCard}>
+      <div style={styles.cardSubTitle}>Modèles HDJ suggérés</div>
 
-{state.showHdjForm ? (
-<div style={styles.infoCard}>
-<div style={styles.hdjFormHeader}>
-<div>
-<div style={styles.cardSubTitle}>Construire un HDJ</div>
-<div style={styles.smallNote}>
-Définir le parcours, la fréquence, les actes et la date souhaitée.
-</div>
-</div>
+      <div style={styles.stack}>
+       {similarHdj.map((model) => (
+          <button
+            key={model.id}
+            type="button"
+            style={{ ...styles.formRow, cursor: "pointer" }}
+            onClick={() => handleApplyHdjModel(model)}
+          >
+            <div>
+              <div style={{ fontWeight: 800 }}>{model.title || model.label}</div>
+              <div style={styles.smallNote}>
+                {model.commonKeywords?.length > 0
+                  ? `Mots-clés communs : ${model.commonKeywords.join(", ")}`
+                  : "Modèle HDJ disponible"}
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null}
 
-<span style={tagStyle("blue")}>
-{(state.hdjForm?.acts || []).length} acte(s) retenu(s)
-</span>
-</div>
-
-<div style={styles.hdjHero}>
-<div style={styles.hdjHeroMain}>
-<div style={styles.hdjHeroTitle}>
-{state.hdjForm?.title || "HDJ à définir"}
-</div>
-
-<div style={styles.hdjHeroMeta}>
-{state.hdjForm?.actor || "Acteur non défini"} ·{" "}
-{state.hdjForm?.frequency || "Fréquence"} ·{" "}
-{state.hdjForm?.duration || "Durée"}
-</div>
-</div>
-
-<div style={styles.hdjHeroBadge}>
-{(state.hdjForm?.acts || []).length} acte(s)
-</div>
-</div>
-
-<div style={styles.hdjSectionBox}>
-<div>
-<div style={styles.hdjSectionTitle}>Paramètres du parcours</div>
-<div style={styles.smallNote}>
-Renseigner les informations de cadrage du HDJ.
-</div>
-</div>
-
-<div style={styles.hdjFieldsGrid}>
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Titre</label>
-<input
-value={state.hdjForm?.title || ""}
-onChange={(e) => updateHdjForm({ title: e.target.value })}
-style={styles.inputSmall}
-placeholder="Ex : HDJ gériatrique – autonomie"
-/>
-</div>
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Acteur porteur</label>
-<input
-value={state.hdjForm?.actor || ""}
-onChange={(e) => updateHdjForm({ actor: e.target.value })}
-style={styles.inputSmall}
-placeholder="Ex : Gériatre"
-/>
-</div>
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Date souhaitée</label>
-<input
-type="date"
-value={state.hdjForm?.requestedDate || ""}
-onChange={(e) =>
-updateHdjForm({ requestedDate: e.target.value })
-}
-style={styles.inputSmall}
-/>
-</div>
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Récurrence</label>
-<select
-value={state.hdjForm?.recurrence || "ponctuel"}
-onChange={(e) => updateHdjForm({ recurrence: e.target.value })}
-style={styles.selectSmall}
->
-<option value="ponctuel">Ponctuel</option>
-<option value="recurrent">Récurrent</option>
-</select>
-</div>
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Fréquence</label>
-<select
-value={state.hdjForm?.frequency || ""}
-onChange={(e) => updateHdjForm({ frequency: e.target.value })}
-style={styles.selectSmall}
->
-<option value="">Choisir</option>
-{HDJ_FREQUENCY_OPTIONS.map((f) => (
-<option key={f} value={f}>
-{f}
-</option>
-))}
-</select>
-</div>
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Durée</label>
-<select
-value={state.hdjForm?.duration || ""}
-onChange={(e) => updateHdjForm({ duration: e.target.value })}
-style={styles.selectSmall}
->
-<option value="">Choisir</option>
-{HDJ_DURATION_OPTIONS.map((d) => (
-<option key={d} value={d}>
-{d}
-</option>
-))}
-</select>
-</div>
-
-{state.hdjForm?.recurrence === "ponctuel" ? (
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Nombre de séances</label>
-<input
-type="number"
-min="1"
-value={state.hdjForm?.customSessions || 1}
-onChange={(e) =>
-updateHdjForm({
-customSessions: Number(e.target.value || 1),
-})
-}
-style={styles.inputSmall}
-/>
-</div>
-) : null}
-
-{state.hdjForm?.frequency === "Personnalisé" ? (
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Fréquence personnalisée</label>
-<input
-value={state.hdjForm?.frequencyCustom || ""}
-onChange={(e) =>
-updateHdjForm({ frequencyCustom: e.target.value })
-}
-style={styles.inputSmall}
-placeholder="Ex : 4 séances sur 2 semaines"
-/>
-</div>
-) : null}
-
-{state.hdjForm?.duration === "Personnalisé" ? (
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Durée personnalisée</label>
-<input
-value={state.hdjForm?.durationCustom || ""}
-onChange={(e) =>
-updateHdjForm({ durationCustom: e.target.value })
-}
-style={styles.inputSmall}
-placeholder="Ex : 10 séances"
-/>
-</div>
-) : null}
-</div>
-
-{state.hdjForm?.recurrence === "recurrent" ? (
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Jours</label>
-<div style={styles.keywordWrap}>
-{DAYS.map((day) => {
-const active = (state.hdjForm?.days || []).includes(day);
-return (
-<button
-key={day}
-type="button"
-onClick={() => {
-const nextDays = active
-? (state.hdjForm?.days || []).filter((d) => d !== day)
-: [...(state.hdjForm?.days || []), day];
-updateHdjForm({ days: nextDays });
-}}
-style={{
-...styles.keywordChip,
-...(active ? styles.keywordChipActive : {}),
-}}
->
-{day}
-</button>
-);
-})}
-</div>
-</div>
-) : null}
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Objectif / contexte</label>
-<textarea
-value={state.hdjForm?.objective || ""}
-onChange={(e) => updateHdjForm({ objective: e.target.value })}
-style={styles.hdjTextarea}
-placeholder="Préciser l’objectif du parcours HDJ"
-/>
-</div>
-</div>
-
-<div style={styles.hdjSectionBox}>
-<div style={styles.hdjSectionTitle}>Actes proposés</div>
-
-<div style={styles.hdjActsGrid}>
-{Object.entries(HDJ_ACTS).map(([group, acts]) => (
-<div key={group} style={styles.hdjActsCategoryCard}>
-<div style={styles.hdjActsGroupTitle}>{group}</div>
-
-<div style={styles.keywordWrap}>
-{acts.map((act) => {
-const active = (state.hdjForm?.acts || []).includes(act);
-
-return (
-<button
-key={act}
-type="button"
-onClick={() => {
-const nextActs = active
-? (state.hdjForm?.acts || []).filter((a) => a !== act)
-: [...(state.hdjForm?.acts || []), act];
-
-updateHdjForm({ acts: nextActs });
-}}
-style={{
-...styles.hdjActChip,
-...(active ? styles.hdjActChipActive : {}),
-}}
->
-{act}
-</button>
-);
-})}
-</div>
-</div>
-))}
-</div>
-
-<div style={styles.hdjSelectedActsBox}>
-<div style={styles.hdjActsGroupTitle}>Actes retenus</div>
-
-<div style={styles.keywordWrap}>
-{(state.hdjForm?.acts || []).length === 0 ? (
-<div style={{ color: "#64748b" }}>Aucun acte sélectionné</div>
-) : (
-state.hdjForm.acts.map((act) => (
-<button
-key={act}
-type="button"
-onClick={() => removeHdjAct(act)}
-style={{ ...styles.hdjActChip, ...styles.hdjActChipActive }}
->
-{act} ×
-</button>
-))
-)}
-</div>
-</div>
-</div>
-
-<div style={styles.hdjSectionBox}>
-<div style={styles.hdjSectionTitle}>Personnalisation</div>
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Ajouter un acte libre</label>
-<div style={styles.rowWrap}>
-<input
-value={state.customActInput || ""}
-onChange={(e) =>
-persistCopilot({ customActInput: e.target.value })
-}
-style={styles.inputSmall}
-placeholder="Ex : bilan douleur, ECG..."
-/>
-<button
-type="button"
-onClick={addHdjAct}
-style={styles.ghostBtn}
->
-+ Ajouter
-</button>
-</div>
-</div>
-
-<div style={styles.fieldBlock}>
-<label style={styles.label}>Commentaire</label>
-<textarea
-value={state.hdjForm?.comment || ""}
-onChange={(e) => updateHdjForm({ comment: e.target.value })}
-style={styles.hdjTextareaSmall}
-/>
-</div>
-</div>
-
-<div style={styles.summaryBoxLight}>
-<strong>Résumé automatique :</strong>
-<div>{computeHdjSummary(state.hdjForm)}</div>
-</div>
-
-<div style={styles.hdjFooterBar}>
-<div style={styles.rowWrap}>
-<button
-type="button"
-onClick={handlePreviewHdj}
-style={styles.secondaryBtn}
->
-{state.hdjMailPreviewOpen ? "Masquer l’aperçu" : "Prévisualiser"}
-</button>
-
-<button
-type="button"
-onClick={handlePrintHdj}
-style={styles.secondaryBtn}
->
-Imprimer
-</button>
-
-<button
-type="button"
-onClick={handleDownloadHdjPdf}
-style={styles.secondaryBtn}
->
-Télécharger
-</button>
-</div>
-
-<div style={styles.rowWrap}>
-<button
-type="button"
-onClick={() => persistCopilot({ hdjStatus: "followup" })}
-style={styles.secondaryBtn}
->
-Relancer
-</button>
-
-<button
-type="button"
-onClick={() => persistCopilot({ hdjStatus: "received" })}
-style={styles.secondaryBtn}
->
-Reçu
-</button>
-
-<button
-type="button"
-onClick={() => persistCopilot({ hdjStatus: "programmed" })}
-style={styles.secondaryBtn}
->
-Programmé
-</button>
-
-<button
-type="button"
-onClick={() => {
-if (!state.hdjForm?.objective?.trim()) {
-alert("Objectif HDJ manquant");
-return;
-}
-if (!state.hdjForm?.actor?.trim()) {
-alert("Acteur porteur HDJ manquant");
-return;
-}
-if (!state.hdjForm?.requestedDate) {
-alert("Date souhaitée manquante");
-return;
-}
-if ((state.hdjForm?.acts || []).length === 0) {
-alert("Au moins un acte HDJ est obligatoire");
-return;
-}
-
+  <HDJTerritorialCommandCenter
+patient={patient}
+activeKeywords={activeKeywords}
+selectedOrientation={state.selectedOrientation}
+hdjForm={state.hdjForm}
+lengthOfStay={lengthOfStay}
+isMedicallyReady={state.isMedicallyReady}
+targetDate={state.targetDate}
+onApplyPathway={(pathway) => {
 persistCopilot((prev) => ({
-hdjStatus: "validated",
+selectedOrientation: "HDJ",
+currentSolutionOverride: "HDJ",
+showHdjForm: true,
 hdjForm: {
 ...(prev.hdjForm || {}),
-validatedAt: new Date().toISOString(),
-validatedBy: currentUser.name,
+title: pathway.title,
+objective: pathway.promise,
+frequency: pathway.rhythm?.frequency || "",
+duration: pathway.rhythm?.duration || "",
+acts: pathway.coreActs || [],
+comment: [
+prev.hdjForm?.comment || "",
+`Parcours territorial : ${pathway.title}`,
+`Impact attendu : ${(pathway.expectedImpact || []).join(" · ")}`,
+]
+.filter(Boolean)
+.join("\n"),
 },
 decisionLog: [
 buildAutoDecisionLogEntry(
-`HDJ validé : ${prev.hdjForm?.title || "HDJ"}`,
+`Parcours HDJ territorial appliqué : ${pathway.title}`,
 currentUser.name
 ),
 ...safeArray(prev.decisionLog),
 ],
 }));
-
-alert("HDJ validé et synchronisé.");
 }}
-style={styles.primaryBtn}
->
-Valider le HDJ
-</button>
-
-<button
-type="button"
-onClick={() => {
-if (!state.hdjForm?.objective?.trim()) {
-alert("Objectif HDJ manquant");
-return;
-}
-if (!state.hdjForm?.actor?.trim()) {
-alert("Acteur porteur HDJ manquant");
-return;
-}
-if (!state.hdjForm?.requestedDate) {
-alert("Date souhaitée manquante");
-return;
-}
-if ((state.hdjForm?.acts || []).length === 0) {
-alert("Au moins un acte HDJ est obligatoire");
-return;
-}
-
-const mailText = buildHdjMail({
-patient,
-currentLocation: state.currentLocation,
-coordination: state.coordination,
-targetDate: state.targetDate,
-hdjForm: state.hdjForm,
-});
-
+onSelectOffer={(offer) => {
 persistCopilot((prev) => ({
-hdjSendLog: [
-{
-id: `hdj_mail_${Date.now()}`,
-to: HDJ_SECRETARIAT_EMAIL,
-sentAt: new Date().toISOString(),
-body: mailText,
+selectedOrientation: "HDJ",
+currentSolutionOverride: "HDJ",
+showHdjForm: true,
+hdjForm: {
+...(prev.hdjForm || {}),
+actor: offer.hospital,
+title: prev.hdjForm?.title || offer.title,
+acts: prev.hdjForm?.acts?.length
+? prev.hdjForm.acts
+: offer.actsAvailable || [],
+comment: [
+prev.hdjForm?.comment || "",
+`Offre territoriale ciblée : ${offer.title} — ${offer.hospital}`,
+`Territoire : ${offer.territory}`,
+`Maturité : ${offer.maturity}`,
+]
+.filter(Boolean)
+.join("\n"),
 },
-...(prev.hdjSendLog || []),
+decisionLog: [
+buildAutoDecisionLogEntry(
+`Offre HDJ territoriale ciblée : ${offer.title} — ${offer.hospital}`,
+currentUser.name
+),
+...safeArray(prev.decisionLog),
 ],
-hdjStatus: "waiting",
-hdjMailPreviewOpen: true,
 }));
-
-alert("Synthèse HDJ préparée pour le secrétariat.");
 }}
-style={styles.primaryBtn}
->
-Envoyer au secrétariat
-</button>
-</div>
-</div>
+/>
 
-{state.hdjMailPreviewOpen ? (
-<div style={styles.historyBox}>
-<div style={styles.infoLabel}>
-Synthèse secrétariat HDJ ({HDJ_SECRETARIAT_EMAIL})
-</div>
-<pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>
-{buildHdjMail({
-patient,
-currentLocation: state.currentLocation,
-coordination: state.coordination,
-targetDate: state.targetDate,
-hdjForm: state.hdjForm,
-})}
-</pre>
-</div>
-) : null}
 
-{(state.hdjSendLog || []).length > 0 ? (
-<div style={styles.historyBox}>
-<div style={styles.infoLabel}>Historique envois HDJ</div>
-{(state.hdjSendLog || []).map((mail) => (
-<div key={mail.id} style={styles.smallNote}>
-{formatDateTime(mail.sentAt)} · envoyé à {mail.to}
-</div>
-))}
-</div>
-) : null}
-</div>
-) : null}
+  {state.showHdjForm ? (
+    <div style={styles.infoCard}>
+      <div style={styles.hdjFormHeader}>
+        <div>
+          <div style={styles.cardSubTitle}>Construire un HDJ</div>
+          <div style={styles.smallNote}>
+            Définir le parcours, la fréquence, les actes et la date souhaitée.
+          </div>
+        </div>
+
+        <span style={tagStyle("blue")}>
+          {(state.hdjForm?.acts || []).length} acte(s) retenu(s)
+        </span>
+      </div>
+
+      <div style={styles.hdjHero}>
+        <div style={styles.hdjHeroMain}>
+          <div style={styles.hdjHeroTitle}>
+            {state.hdjForm?.title || "HDJ à définir"}
+          </div>
+
+          <div style={styles.hdjHeroMeta}>
+            {state.hdjForm?.actor || "Acteur non défini"} ·{" "}
+            {state.hdjForm?.frequency || "Fréquence"} ·{" "}
+            {state.hdjForm?.duration || "Durée"}
+          </div>
+        </div>
+
+        <div style={styles.hdjHeroBadge}>
+          {(state.hdjForm?.acts || []).length} acte(s)
+        </div>
+      </div>
+
+      {state.hdjErrorMessage ? (
+        <div style={styles.hdjErrorBox}>
+          <div style={styles.hdjErrorTitle}>Informations à compléter avant validation</div>
+          <pre style={styles.hdjErrorText}>{state.hdjErrorMessage}</pre>
+        </div>
+      ) : null}
+
+      {state.hdjSuccessMessage ? (
+        <div style={styles.hdjSuccessBox}>{state.hdjSuccessMessage}</div>
+      ) : null}
+
+      {state.hdjSending ? (
+        <div style={styles.hdjInfoBox}>Envoi au secrétariat en cours...</div>
+      ) : null}
+
+      <div style={styles.hdjSectionBox}>
+        <div>
+          <div style={styles.hdjSectionTitle}>Paramètres du parcours</div>
+          <div style={styles.smallNote}>Renseigner les informations de cadrage du HDJ.</div>
+        </div>
+
+        <div style={styles.hdjFieldsGrid}>
+          <div style={styles.fieldBlock}>
+            <label style={styles.label}>Titre</label>
+            <input
+              value={state.hdjForm?.title || ""}
+              onChange={(e) => updateHdjForm({ title: e.target.value })}
+              style={styles.inputSmall}
+              placeholder="Ex : HDJ gériatrique – autonomie"
+            />
+          </div>
+
+          <div style={styles.fieldBlock}>
+            <label style={styles.label}>Acteur porteur</label>
+            <input
+              value={state.hdjForm?.actor || ""}
+              onChange={(e) => updateHdjForm({ actor: e.target.value })}
+              style={{
+                ...styles.inputSmall,
+                ...(state.hdjErrorMessage?.includes("Acteur porteur") ? styles.inputError : {}),
+              }}
+              placeholder="Ex : Gériatre"
+            />
+          </div>
+
+          <div style={styles.fieldBlock}>
+            <label style={styles.label}>Date souhaitée</label>
+            <input
+              type="date"
+              value={state.hdjForm?.requestedDate || ""}
+              onChange={(e) => updateHdjForm({ requestedDate: e.target.value })}
+              style={{
+                ...styles.inputSmall,
+                ...(state.hdjErrorMessage?.includes("Date souhaitée") ? styles.inputError : {}),
+              }}
+            />
+          </div>
+
+          <div style={styles.fieldBlock}>
+            <label style={styles.label}>Récurrence</label>
+            <select
+              value={state.hdjForm?.recurrence || "ponctuel"}
+              onChange={(e) => updateHdjForm({ recurrence: e.target.value })}
+              style={styles.selectSmall}
+            >
+              <option value="ponctuel">Ponctuel</option>
+              <option value="recurrent">Récurrent</option>
+            </select>
+          </div>
+
+          <div style={styles.fieldBlock}>
+            <label style={styles.label}>Fréquence</label>
+            <select
+              value={state.hdjForm?.frequency || ""}
+              onChange={(e) => updateHdjForm({ frequency: e.target.value })}
+              style={styles.selectSmall}
+            >
+              <option value="">Choisir</option>
+              {HDJ_FREQUENCY_OPTIONS.map((f) => (
+                <option key={f} value={f}>{f}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.fieldBlock}>
+            <label style={styles.label}>Durée</label>
+            <select
+              value={state.hdjForm?.duration || ""}
+              onChange={(e) => updateHdjForm({ duration: e.target.value })}
+              style={styles.selectSmall}
+            >
+              <option value="">Choisir</option>
+              {HDJ_DURATION_OPTIONS.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+
+          {state.hdjForm?.recurrence === "ponctuel" ? (
+            <div style={styles.fieldBlock}>
+              <label style={styles.label}>Nombre de séances</label>
+              <input
+                type="number"
+                min="1"
+                value={state.hdjForm?.customSessions || 1}
+                onChange={(e) =>
+                  updateHdjForm({ customSessions: Number(e.target.value || 1) })
+                }
+                style={styles.inputSmall}
+              />
+            </div>
+          ) : null}
+        </div>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>Objectif / contexte</label>
+          <textarea
+            value={state.hdjForm?.objective || ""}
+            onChange={(e) => updateHdjForm({ objective: e.target.value })}
+            style={{
+              ...styles.hdjTextarea,
+              ...(state.hdjErrorMessage?.includes("Objectif") ? styles.inputError : {}),
+            }}
+            placeholder="Préciser l’objectif du parcours HDJ"
+          />
+        </div>
+      </div>
+
+      <div style={styles.hdjSectionBox}>
+        <div style={styles.hdjSectionTitle}>Actes proposés</div>
+
+        <div style={styles.hdjActsGrid}>
+          {Object.entries(HDJ_ACTS).map(([group, acts]) => (
+            <div key={group} style={styles.hdjActsCategoryCard}>
+              <div style={styles.hdjActsGroupTitle}>{group}</div>
+
+              <div style={styles.keywordWrap}>
+                {acts.map((act) => {
+                  const active = (state.hdjForm?.acts || []).includes(act);
+
+
+
+                  return (
+                    <button
+                      key={act}
+                      type="button"
+                      onClick={() => {
+                        const nextActs = active
+                          ? (state.hdjForm?.acts || []).filter((a) => a !== act)
+                          : [...(state.hdjForm?.acts || []), act];
+
+                        updateHdjForm({ acts: nextActs });
+                      }}
+                      style={{
+                        ...styles.hdjActChip,
+                        ...(active ? styles.hdjActChipActive : {}),
+                      }}
+                    >
+                      {act}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            ...styles.hdjSelectedActsBox,
+            ...(state.hdjErrorMessage?.includes("Aucun acte") ? styles.boxError : {}),
+          }}
+        >
+          <div style={styles.hdjActsGroupTitle}>Actes retenus</div>
+
+          <div style={styles.keywordWrap}>
+            {(state.hdjForm?.acts || []).length === 0 ? (
+              <div style={{ color: "#64748b" }}>Aucun acte sélectionné</div>
+            ) : (
+              state.hdjForm.acts.map((act) => (
+                <button
+                  key={act}
+                  type="button"
+                  onClick={() => removeHdjAct(act)}
+                  style={{ ...styles.hdjActChip, ...styles.hdjActChipActive }}
+                >
+                  {act} ×
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.hdjSectionBox}>
+        <div style={styles.hdjSectionTitle}>Personnalisation</div>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>Ajouter un acte libre</label>
+          <div style={styles.rowWrap}>
+            <input
+              value={state.customActInput || ""}
+              onChange={(e) => persistCopilot({ customActInput: e.target.value })}
+              style={styles.inputSmall}
+              placeholder="Ex : bilan douleur, ECG..."
+            />
+            <button type="button" onClick={addHdjAct} style={styles.ghostBtn}>
+              + Ajouter
+            </button>
+          </div>
+        </div>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>Commentaire</label>
+          <textarea
+            value={state.hdjForm?.comment || ""}
+            onChange={(e) => updateHdjForm({ comment: e.target.value })}
+            style={styles.hdjTextareaSmall}
+          />
+        </div>
+      </div>
+
+      <div style={styles.summaryBoxLight}>
+        <strong>Résumé automatique :</strong>
+        <div>{computeHdjSummary(state.hdjForm)}</div>
+      </div>
+
+      <div style={styles.hdjFooterBar}>
+        <div style={styles.rowWrap}>
+          <button type="button" onClick={handlePreviewHdj} style={styles.secondaryBtn}>
+            {state.hdjMailPreviewOpen ? "Masquer l’aperçu" : "Prévisualiser"}
+          </button>
+
+          <button type="button" onClick={handlePrintHdj} style={styles.secondaryBtn}>
+            Imprimer
+          </button>
+
+          <button type="button" onClick={handleDownloadHdjPdf} style={styles.secondaryBtn}>
+            Télécharger
+          </button>
+        </div>
+
+        <div style={styles.rowWrap}>
+          <button
+            type="button"
+            onClick={() => persistCopilot({ hdjStatus: "followup" })}
+            style={styles.secondaryBtn}
+          >
+            Relancer
+          </button>
+
+          <button
+            type="button"
+            onClick={() => persistCopilot({ hdjStatus: "received" })}
+            style={styles.secondaryBtn}
+          >
+            Reçu
+          </button>
+
+          <button
+            type="button"
+            onClick={() => persistCopilot({ hdjStatus: "programmed" })}
+            style={styles.secondaryBtn}
+          >
+            Programmé
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const errors = [];
+
+              if (!state.hdjForm?.objective?.trim()) errors.push("• Objectif du HDJ non renseigné");
+              if (!state.hdjForm?.actor?.trim()) errors.push("• Acteur porteur non renseigné");
+              if (!state.hdjForm?.requestedDate) errors.push("• Date souhaitée non définie");
+              if ((state.hdjForm?.acts || []).length === 0) errors.push("• Aucun acte sélectionné");
+
+              if (errors.length > 0) {
+                setState((prev) => ({
+                  ...prev,
+                  hdjErrorMessage: errors.join("\n"),
+                  hdjSuccessMessage: "",
+                }));
+                return;
+              }
+
+              persistCopilot((prev) => {
+                const validatedHdjForm = {
+                  ...(prev.hdjForm || {}),
+                  validatedAt: new Date().toISOString(),
+                  validatedBy: currentUser.name,
+                };
+
+                return {
+                  selectedOrientation: "HDJ",
+                  currentSolutionOverride: "HDJ",
+                  activeSection: "hdj",
+                  showHdjForm: true,
+                  hdjStatus: "validated",
+                  hdjForm: validatedHdjForm,
+                  hdjErrorMessage: "",
+                  hdjSuccessMessage: "HDJ validé. Le parcours est prêt pour envoi au secrétariat.",
+                  decisionLog: [
+                    buildAutoDecisionLogEntry(
+                      `HDJ validé : ${validatedHdjForm.title || "HDJ"} · ${
+                        validatedHdjForm.requestedDate
+                          ? formatShortDate(validatedHdjForm.requestedDate)
+                          : "date non définie"
+                      }`,
+                      currentUser.name
+                    ),
+                    ...safeArray(prev.decisionLog),
+                  ],
+                };
+              });
+            }}
+            style={styles.primaryBtn}
+          >
+            Valider le HDJ
+          </button>
+
+          <button
+            type="button"
+            disabled={state.hdjSending}
+            onClick={() => {
+              if (state.hdjStatus !== "validated") {
+                setState((prev) => ({
+                  ...prev,
+                  hdjErrorMessage:
+                    "• Le HDJ doit être validé avant l’envoi au secrétariat.",
+                  hdjSuccessMessage: "",
+                }));
+                return;
+              }
+
+              const mailText = buildHdjMail({
+                patient,
+                currentLocation: state.currentLocation,
+                coordination: state.coordination,
+                targetDate: state.targetDate,
+                hdjForm: state.hdjForm,
+              });
+
+              persistCopilot({
+                hdjSending: true,
+                hdjStatus: "sending",
+                hdjErrorMessage: "",
+                hdjSuccessMessage: "",
+                hdjMailPreviewOpen: true,
+              });
+
+              setTimeout(() => {
+                persistCopilot((prev) => ({
+                  hdjSending: false,
+                  hdjStatus: "sent",
+                  hdjSentAt: new Date().toISOString(),
+                  hdjSuccessMessage: `Demande HDJ envoyée au secrétariat : ${HDJ_SECRETARIAT_EMAIL}`,
+                  hdjSendLog: [
+                    {
+                      id: `hdj_mail_${Date.now()}`,
+                      to: HDJ_SECRETARIAT_EMAIL,
+                      sentAt: new Date().toISOString(),
+                      body: mailText,
+                      status: "sent",
+                      simulated: true,
+                    },
+                    ...(prev.hdjSendLog || []),
+                  ],
+                  decisionLog: [
+                    buildAutoDecisionLogEntry(
+                      `Demande HDJ envoyée au secrétariat : ${HDJ_SECRETARIAT_EMAIL}`,
+                      currentUser.name
+                    ),
+                    ...safeArray(prev.decisionLog),
+                  ],
+                }));
+              }, 900);
+            }}
+            style={{
+              ...styles.primaryBtn,
+              background:
+                state.hdjStatus === "validated"
+                  ? "linear-gradient(135deg, #059669, #047857)"
+                  : styles.primaryBtn.background,
+              opacity: state.hdjSending ? 0.7 : 1,
+              cursor: state.hdjSending ? "wait" : "pointer",
+            }}
+          >
+            {state.hdjSending ? "Envoi..." : "Envoyer au secrétariat"}
+          </button>
+        </div>
+      </div>
+
+      {state.hdjMailPreviewOpen ? (
+        <div style={styles.historyBox}>
+          <div style={styles.infoLabel}>
+            Synthèse secrétariat HDJ ({HDJ_SECRETARIAT_EMAIL})
+          </div>
+          <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>
+            {buildHdjMail({
+              patient,
+              currentLocation: state.currentLocation,
+              coordination: state.coordination,
+              targetDate: state.targetDate,
+              hdjForm: state.hdjForm,
+            })}
+          </pre>
+        </div>
+      ) : null}
+
+      {(state.hdjSendLog || []).length > 0 ? (
+        <div style={styles.historyBox}>
+          <div style={styles.infoLabel}>Historique envois HDJ</div>
+          {(state.hdjSendLog || []).map((mail) => (
+            <div key={mail.id} style={styles.smallNote}>
+              {formatDateTime(mail.sentAt)} · envoyé à {mail.to}
+              {mail.simulated ? " · simulation" : ""}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  ) : null}
 </section>
 
 {/* =========================
 DEMANDES EXTERNES
 ========================= */}
 <section
-id="section-demandes"
-style={{
-...styles.card,
-scrollMarginTop: 100,
-display: state.activeSection === "demandes" ? "grid" : "none",
-}}
+  id="section-demandes"
+  style={{
+    ...styles.card,
+    scrollMarginTop: 100,
+    display: state.activeSection === "demandes" ? "grid" : "none",
+  }}
 >
-<div style={styles.cardHeader}>
-<div style={styles.cardTitle}>Demandes externes</div>
-<div style={styles.rowWrap}>
-<span style={styles.badge}>{demandCounters.relancer} à relancer</span>
-<span style={styles.badge}>{demandCounters.attente} en attente</span>
-<span style={styles.badge}>{demandCounters.acceptees} acceptées</span>
-</div>
-</div>
+  <div style={styles.cardHeader}>
+    <div style={styles.cardTitle}>Demandes externes</div>
 
-{Object.keys(state.resourceFollowUp || {}).length === 0 ? (
-<div style={styles.smallNote}>
-Aucune demande tracée pour le moment.
-</div>
-) : (
-<div style={styles.stack}>
-{Object.entries(state.resourceFollowUp)
-.sort(([, a], [, b]) => {
-const priorityOrder = {
-followup: 0,
-needs_clarification: 1,
-waiting: 2,
-sent: 3,
-received: 4,
-programmed: 5,
-accepted: 6,
-refused: 7,
-closed: 8,
-draft: 9,
-};
-return (
-(priorityOrder[a?.status] ?? 99) -
-(priorityOrder[b?.status] ?? 99)
-);
-})
-.map(([resourceId, demand]) => {
-const resource = mergedResources.find((r) => r.id === resourceId);
-const followMeta = getFollowMeta(demand);
-const historyItems = state.resourceHistory?.[resourceId] || [];
-const isExpanded = state.expandedHistory?.[resourceId] || false;
+    <div style={styles.rowWrap}>
+      <span style={styles.badge}>{demandCounters.relancer} à relancer</span>
+      <span style={styles.badge}>{demandCounters.attente} en attente</span>
+      <span style={styles.badge}>{demandCounters.acceptees} acceptées</span>
+    </div>
+  </div>
 
-return (
-<div key={resourceId} style={styles.workflowCard}>
-<div style={styles.workflowHeader}>
-<div>
-<div style={styles.workflowTitle}>
-{resource?.name || demand?.name || resourceId}
-</div>
-<div style={styles.smallNote}>
-{resource?.family || "Ressource"}
-</div>
-</div>
+  {Object.keys(state.resourceFollowUp || {}).length === 0 ? (
+    <div style={styles.smallNote}>Aucune demande tracée pour le moment.</div>
+  ) : (
+    <div style={styles.stack}>
+      {Object.entries(state.resourceFollowUp)
+        .sort(([, a], [, b]) => {
+          const priorityOrder = {
+            followup: 0,
+            needs_clarification: 1,
+            waiting: 2,
+            sent: 3,
+            received: 4,
+            programmed: 5,
+            accepted: 6,
+            refused: 7,
+            abandoned: 8,
+            closed: 9,
+            draft: 10,
+          };
 
-<span style={tagStyle(followMeta.tone)}>
-{followMeta.label}
-</span>
-</div>
+          return (priorityOrder[a?.status] ?? 99) - (priorityOrder[b?.status] ?? 99);
+        })
+        .map(([resourceId, demand]) => {
+          const resource = mergedResources.find((r) => r.id === resourceId);
+          const followMeta = getFollowMeta(demand);
+          const historyItems = state.resourceHistory?.[resourceId] || [];
+          const isExpanded = state.expandedHistory?.[resourceId] || false;
 
-<div style={styles.workflowSentence}>
-{historyItems.length > 0 ? (
-<div style={styles.historyBlock}>
-<div style={styles.historyTitle}>Historique</div>
+          return (
+            <div key={resourceId} style={styles.workflowCard}>
+              <div style={styles.workflowHeader}>
+                <div>
+                  <div style={styles.workflowTitle}>
+                    {resource?.name || demand?.name || resourceId}
+                  </div>
 
-<div style={styles.historyList}>
-{(isExpanded ? historyItems : historyItems.slice(0, 3)).map(
-(item, index) => (
-<div key={index} style={styles.historyItem}>
-<span style={styles.historyItemLabel}>
-{item.label}
-</span>
+                  <div style={styles.smallNote}>
+                    {resource?.family ||
+                      demand?.sentTo ||
+                      demand?.nextStep ||
+                      "Ressource externe"}
+                  </div>
+                </div>
 
-{item.reason ? (
-<span style={styles.historyItemReason}>
-{" "}
-— {item.reason}
-</span>
-) : null}
+                <span style={tagStyle(followMeta.tone)}>
+                  {followMeta.label}
+                </span>
+              </div>
 
-<div style={styles.historyItemMeta}>
-{formatRelativeTime(item.at)}
-{item.by
-? ` · ${item.by}${
-item.role ? ` (${item.role})` : ""
-}`
-: ""}
-</div>
-</div>
-)
-)}
-</div>
+              <div style={styles.workflowSentence}>
+                {historyItems.length > 0 ? (
+                  <div style={styles.historyBlock}>
+                    <div style={styles.historyTitle}>Historique</div>
 
-{historyItems.length > 3 ? (
-<div
-style={styles.historyToggle}
-onClick={() =>
-setState((prev) => ({
-...prev,
-expandedHistory: {
-...prev.expandedHistory,
-[resourceId]:
-!prev.expandedHistory?.[resourceId],
-},
-}))
-}
->
-{isExpanded ? "Voir moins" : "Voir plus"}
-</div>
-) : null}
-</div>
-) : null}
+                    <div style={styles.historyList}>
+                      {(isExpanded ? historyItems : historyItems.slice(0, 3)).map(
+                        (item, index) => (
+                          <div key={index} style={styles.historyItem}>
+                            <span style={styles.historyItemLabel}>{item.label}</span>
 
-{demand?.status === "followup" && "Relance à faire maintenant"}
-{demand?.status === "needs_clarification" &&
-"Informations à compléter"}
-{demand?.status === "waiting" && "En attente de réponse"}
-{demand?.status === "sent" && "Demande envoyée"}
-{demand?.status === "accepted" && "Acceptée"}
-{demand?.status === "refused" && "Refusée"}
-{demand?.status === "abandoned" && "Abandonnée"}
-{(!demand?.status || demand?.status === "draft") && "À initier"}
+                            {item.reason ? (
+                              <span style={styles.historyItemReason}>
+                                {" "}
+                                — {item.reason}
+                              </span>
+                            ) : null}
 
-{demand?.status === "refused" && demand?.refusalReason ? (
-<div style={styles.motifInline}>
-{demand.refusalReason}
-</div>
-) : null}
+                            <div style={styles.historyItemMeta}>
+                              {formatRelativeTime(item.at)}
+                              {item.by
+                                ? ` · ${item.by}${item.role ? ` (${item.role})` : ""}`
+                                : ""}
+                            </div>
+                          </div>
+                        )
+                      )}
+                    </div>
 
-{demand?.status === "abandoned" && demand?.abandonReason ? (
-<div style={styles.motifInline}>
-Abandon : {demand.abandonReason}
-</div>
-) : null}
-</div>
+                    {historyItems.length > 3 ? (
+                      <button
+                        type="button"
+                        style={{
+                          ...styles.secondaryBtn,
+                          width: "fit-content",
+                        }}
+                        onClick={() =>
+                          setState((prev) => ({
+                            ...prev,
+                            expandedHistory: {
+                              ...prev.expandedHistory,
+                              [resourceId]: !prev.expandedHistory?.[resourceId],
+                            },
+                          }))
+                        }
+                      >
+                        {isExpanded ? "Voir moins" : "Voir plus"}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
 
-<div style={styles.workflowActions}>
-<button
-type="button"
-onClick={() =>
-setState((prev) => ({
-...prev,
-resourceFollowUp: {
-...prev.resourceFollowUp,
-[resourceId]: {
-...(prev.resourceFollowUp?.[resourceId] || {}),
-...demand,
-status: "followup",
-},
-},
-resourceHistory: pushResourceHistory(prev, resourceId, {
-type: "followup",
-label: "Relance",
-by: "Utilisateur",
-}),
-}))
-}
-style={{
-...styles.secondaryBtn,
-...(demand?.status === "followup"
-? styles.primaryBtn
-: {}),
-}}
->
-Relancer
-</button>
+                {demand?.status === "followup" && "Relance à faire maintenant"}
+                {demand?.status === "needs_clarification" && "Informations à compléter"}
+                {demand?.status === "waiting" && "En attente de réponse"}
+                {demand?.status === "sent" && "Demande envoyée"}
+                {demand?.status === "accepted" && "Acceptée"}
+                {demand?.status === "refused" && "Refusée"}
+                {demand?.status === "abandoned" && "Abandonnée"}
+                {(!demand?.status || demand?.status === "draft") && "À initier"}
 
-<button
-type="button"
-onClick={() =>
-setState((prev) => ({
-...prev,
-resourceFollowUp: {
-...prev.resourceFollowUp,
-[resourceId]: {
-...(prev.resourceFollowUp?.[resourceId] || {}),
-...demand,
-status: "waiting",
-},
-},
-resourceHistory: pushResourceHistory(prev, resourceId, {
-type: "waiting",
-label: "Passée en attente",
-by: "Utilisateur",
-}),
-}))
-}
-style={{
-...styles.secondaryBtn,
-...(demand?.status === "waiting"
-? styles.waitingBtnActive
-: {}),
-}}
->
-Attente
-</button>
+                {demand?.sentTo ? (
+                  <div style={styles.motifInline}>
+                    Destinataire : {demand.sentTo}
+                  </div>
+                ) : null}
 
-<button
-type="button"
-onClick={() =>
-setState((prev) => ({
-...prev,
-resourceFollowUp: {
-...prev.resourceFollowUp,
-[resourceId]: {
-...(prev.resourceFollowUp?.[resourceId] || {}),
-...demand,
-status: "accepted",
-},
-},
-resourceHistory: pushResourceHistory(prev, resourceId, {
-type: "accepted",
-label: "Acceptée",
-by: "Utilisateur",
-}),
-}))
-}
-style={{
-...styles.secondaryBtn,
-...(demand?.status === "accepted"
-? styles.acceptedBtnActive
-: {}),
-}}
->
-Accepter
-</button>
+                {demand?.sentAt ? (
+                  <div style={styles.motifInline}>
+                    Envoyée le {formatDateTime(demand.sentAt)}
+                  </div>
+                ) : null}
 
-<button
-type="button"
-onClick={() =>
-setState((prev) => ({
-...prev,
-pendingRefusalResourceId: resourceId,
-pendingRefusalReason:
-demand?.refusalReason || REFUSAL_REASONS[0],
-}))
-}
-style={{
-...styles.secondaryBtn,
-...(demand?.status === "refused"
-? styles.refusalBtnActive
-: {}),
-}}
->
-Refus
-</button>
+                {demand?.nextStep ? (
+                  <div style={styles.motifInline}>
+                    Prochaine étape : {demand.nextStep}
+                  </div>
+                ) : null}
 
-<button
-type="button"
-onClick={() =>
-setState((prev) => ({
-...prev,
-pendingAbandonResourceId: resourceId,
-pendingAbandonReason:
-demand?.abandonReason || ABANDON_REASONS[0],
-}))
-}
-style={{
-...styles.secondaryBtn,
-...(demand?.status === "abandoned"
-? styles.abandonBtnActive
-: {}),
-}}
->
-Abandonner
-</button>
-</div>
-</div>
-);
-})}
-</div>
-)}
+                {demand?.status === "refused" && demand?.refusalReason ? (
+                  <div style={styles.motifInline}>{demand.refusalReason}</div>
+                ) : null}
 
-{state.pendingAbandonResourceId ? (
-<div style={styles.modalOverlay}>
-<div style={styles.modal}>
-<div style={styles.modalTitle}>Motif d’abandon</div>
+                {demand?.status === "abandoned" && demand?.abandonReason ? (
+                  <div style={styles.motifInline}>
+                    Abandon : {demand.abandonReason}
+                  </div>
+                ) : null}
+              </div>
 
-<select
-value={state.pendingAbandonReason}
-onChange={(e) =>
-setState((prev) => ({
-...prev,
-pendingAbandonReason: e.target.value,
-}))
-}
-style={styles.select}
->
-{ABANDON_REASONS.map((r) => (
-<option key={r} value={r}>
-{r}
-</option>
-))}
-</select>
+              <div style={styles.workflowActions}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    persistCopilot((prev) => ({
+                      resourceFollowUp: {
+                        ...prev.resourceFollowUp,
+                        [resourceId]: {
+                          ...(prev.resourceFollowUp?.[resourceId] || {}),
+                          ...demand,
+                          status: "followup",
+                          updatedAt: new Date().toISOString(),
+                        },
+                      },
+                      resourceHistory: pushResourceHistory(prev, resourceId, {
+                        type: "followup",
+                        label: "Relance",
+                        by: currentUser.name,
+                        role: currentUser.role,
+                      }),
+                    }))
+                  }
+                  style={{
+                    ...styles.secondaryBtn,
+                    ...(demand?.status === "followup" ? styles.waitingBtnActive : {}),
+                  }}
+                >
+                  Relancer
+                </button>
 
-<div style={styles.modalActions}>
-<button
-type="button"
-onClick={() =>
-setState((prev) => ({
-...prev,
-pendingAbandonResourceId: null,
-}))
-}
-style={styles.secondaryBtn}
->
-Annuler
-</button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    persistCopilot((prev) => ({
+                      resourceFollowUp: {
+                        ...prev.resourceFollowUp,
+                        [resourceId]: {
+                          ...(prev.resourceFollowUp?.[resourceId] || {}),
+                          ...demand,
+                          status: "waiting",
+                          updatedAt: new Date().toISOString(),
+                        },
+                      },
+                      resourceHistory: pushResourceHistory(prev, resourceId, {
+                        type: "waiting",
+                        label: "Passée en attente",
+                        by: currentUser.name,
+                        role: currentUser.role,
+                      }),
+                    }))
+                  }
+                  style={{
+                    ...styles.secondaryBtn,
+                    ...(demand?.status === "waiting" ? styles.waitingBtnActive : {}),
+                  }}
+                >
+                  Attente
+                </button>
 
-<button
-type="button"
-onClick={() => {
-setState((prev) => ({
-...prev,
-resourceFollowUp: {
-...prev.resourceFollowUp,
-[prev.pendingAbandonResourceId]: {
-...(prev.resourceFollowUp?.[
-prev.pendingAbandonResourceId
-] || {}),
-status: "abandoned",
-abandonReason: prev.pendingAbandonReason,
-},
-},
-pendingAbandonResourceId: null,
-}));
-}}
-style={styles.primaryBtn}
->
-Confirmer abandon
-</button>
-</div>
-</div>
-</div>
-) : null}
+                <button
+                  type="button"
+                  onClick={() =>
+                    persistCopilot((prev) => ({
+                      resourceFollowUp: {
+                        ...prev.resourceFollowUp,
+                        [resourceId]: {
+                          ...(prev.resourceFollowUp?.[resourceId] || {}),
+                          ...demand,
+                          status: "accepted",
+                          acceptedAt: new Date().toISOString(),
+                          updatedAt: new Date().toISOString(),
+                        },
+                      },
+                      resourceHistory: pushResourceHistory(prev, resourceId, {
+                        type: "accepted",
+                        label: "Acceptée",
+                        by: currentUser.name,
+                        role: currentUser.role,
+                      }),
+                    }))
+                  }
+                  style={{
+                    ...styles.secondaryBtn,
+                    ...(demand?.status === "accepted" ? styles.acceptedBtnActive : {}),
+                  }}
+                >
+                  Accepter
+                </button>
 
-{state.pendingRefusalResourceId ? (
-<div style={styles.modalOverlay}>
-<div style={styles.modal}>
-<div style={styles.modalTitle}>Motif du refus prestataire</div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setState((prev) => ({
+                      ...prev,
+                      pendingRefusalResourceId: resourceId,
+                      pendingRefusalReason:
+                        demand?.refusalReason || REFUSAL_REASONS[0],
+                    }))
+                  }
+                  style={{
+                    ...styles.secondaryBtn,
+                    ...(demand?.status === "refused" ? styles.refusalBtnActive : {}),
+                  }}
+                >
+                  Refus
+                </button>
 
-<select
-value={state.pendingRefusalReason}
-onChange={(e) =>
-setState((prev) => ({
-...prev,
-pendingRefusalReason: e.target.value,
-}))
-}
-style={styles.select}
->
-{REFUSAL_REASONS.map((r) => (
-<option key={r} value={r}>
-{r}
-</option>
-))}
-</select>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setState((prev) => ({
+                      ...prev,
+                      pendingAbandonResourceId: resourceId,
+                      pendingAbandonReason:
+                        demand?.abandonReason || ABANDON_REASONS[0],
+                    }))
+                  }
+                  style={{
+                    ...styles.secondaryBtn,
+                    ...(demand?.status === "abandoned"
+                      ? styles.abandonBtnActive
+                      : {}),
+                  }}
+                >
+                  Abandonner
+                </button>
+              </div>
+            </div>
+          );
+        })}
+    </div>
+  )}
 
-<div style={styles.modalActions}>
-<button
-type="button"
-onClick={() =>
-setState((prev) => ({
-...prev,
-pendingRefusalResourceId: null,
-}))
-}
-style={styles.secondaryBtn}
->
-Annuler
-</button>
+  {state.pendingAbandonResourceId ? (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modal}>
+        <div style={styles.modalTitle}>Motif d’abandon</div>
 
-<button
-type="button"
-disabled={!state.pendingRefusalReason}
-onClick={() => {
-setState((prev) => ({
-...prev,
-resourceFollowUp: {
-...prev.resourceFollowUp,
-[prev.pendingRefusalResourceId]: {
-...(prev.resourceFollowUp?.[
-prev.pendingRefusalResourceId
-] || {}),
-status: "refused",
-refusalReason: prev.pendingRefusalReason,
-},
-},
-resourceHistory: pushResourceHistory(
-prev,
-prev.pendingRefusalResourceId,
-{
-type: "refused",
-label: "Refusée",
-reason: prev.pendingRefusalReason,
-by: "Utilisateur",
-}
-),
-pendingRefusalResourceId: null,
-}));
-}}
-style={{
-...styles.primaryBtn,
-opacity: !state.pendingRefusalReason ? 0.5 : 1,
-cursor: !state.pendingRefusalReason ? "not-allowed" : "pointer",
-}}
->
-Confirmer refus
-</button>
-</div>
-</div>
-</div>
-) : null}
+        <select
+          value={state.pendingAbandonReason}
+          onChange={(e) =>
+            setState((prev) => ({
+              ...prev,
+              pendingAbandonReason: e.target.value,
+            }))
+          }
+          style={styles.select}
+        >
+          {ABANDON_REASONS.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+
+        <div style={styles.modalActions}>
+          <button
+            type="button"
+            onClick={() =>
+              setState((prev) => ({
+                ...prev,
+                pendingAbandonResourceId: null,
+              }))
+            }
+            style={styles.secondaryBtn}
+          >
+            Annuler
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const resourceId = state.pendingAbandonResourceId;
+              const reason = state.pendingAbandonReason;
+
+              persistCopilot((prev) => ({
+                resourceFollowUp: {
+                  ...prev.resourceFollowUp,
+                  [resourceId]: {
+                    ...(prev.resourceFollowUp?.[resourceId] || {}),
+                    status: "abandoned",
+                    abandonReason: reason,
+                    updatedAt: new Date().toISOString(),
+                  },
+                },
+                resourceHistory: pushResourceHistory(prev, resourceId, {
+                  type: "abandoned",
+                  label: "Abandonnée",
+                  reason,
+                  by: currentUser.name,
+                  role: currentUser.role,
+                }),
+                pendingAbandonResourceId: null,
+              }));
+            }}
+            style={styles.primaryBtn}
+          >
+            Confirmer abandon
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null}
+
+  {state.pendingRefusalResourceId ? (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modal}>
+        <div style={styles.modalTitle}>Motif du refus prestataire</div>
+
+        <select
+          value={state.pendingRefusalReason}
+          onChange={(e) =>
+            setState((prev) => ({
+              ...prev,
+              pendingRefusalReason: e.target.value,
+            }))
+          }
+          style={styles.select}
+        >
+          {REFUSAL_REASONS.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+
+        <div style={styles.modalActions}>
+          <button
+            type="button"
+            onClick={() =>
+              setState((prev) => ({
+                ...prev,
+                pendingRefusalResourceId: null,
+              }))
+            }
+            style={styles.secondaryBtn}
+          >
+            Annuler
+          </button>
+
+          <button
+            type="button"
+            disabled={!state.pendingRefusalReason}
+            onClick={() => {
+              const resourceId = state.pendingRefusalResourceId;
+              const reason = state.pendingRefusalReason;
+
+              persistCopilot((prev) => ({
+                resourceFollowUp: {
+                  ...prev.resourceFollowUp,
+                  [resourceId]: {
+                    ...(prev.resourceFollowUp?.[resourceId] || {}),
+                    status: "refused",
+                    refusalReason: reason,
+                    updatedAt: new Date().toISOString(),
+                  },
+                },
+                resourceHistory: pushResourceHistory(prev, resourceId, {
+                  type: "refused",
+                  label: "Refusée",
+                  reason,
+                  by: currentUser.name,
+                  role: currentUser.role,
+                }),
+                pendingRefusalResourceId: null,
+              }));
+            }}
+            style={{
+              ...styles.primaryBtn,
+              opacity: !state.pendingRefusalReason ? 0.5 : 1,
+              cursor: !state.pendingRefusalReason ? "not-allowed" : "pointer",
+            }}
+          >
+            Confirmer refus
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null}
 </section>
 
 {/* =========================
 SYNTHESE
 ========================= */}
 <section
-id="section-synthese"
-style={{
-display: state.activeSection === "synthese" ? "grid" : "none",
-scrollMarginTop: 100,
-...styles.card,
-}}
+  id="section-synthese"
+  style={{
+    display: state.activeSection === "synthese" ? "grid" : "none",
+    scrollMarginTop: 100,
+    ...styles.card,
+  }}
 >
+  <div style={styles.cardHeader}>
+    <div>
+      <div style={styles.cardTitle}>Synthèse parcours</div>
+      <div style={styles.smallNote}>
+        Vue prête pour transmission, staff ou relève.
+      </div>
+    </div>
 
-<div style={styles.cardHeader}>
-<div style={styles.cardTitle}>Synthèse</div>
-<button
-type="button"
-onClick={exportSynthesis}
-style={styles.secondaryBtn}
->
-Copier la synthèse
-</button>
-</div>
+    <button type="button" onClick={exportSynthesis} style={styles.primaryBtn}>
+      Copier la synthèse
+    </button>
+  </div>
 
-<div style={styles.summaryBox}>
-<div>
-<strong>Situation :</strong> {quickSummary.situation || "—"}
-</div>
-<div>
-<strong>Blocage principal :</strong> {quickSummary.block || "—"}
-</div>
-<div>
-<strong>Stratégie :</strong>{" "}
-{quickSummary.strategy || state.selectedOrientation || "—"}
-</div>
-<div>
-<strong>Prochaine action :</strong> {quickSummary.nextAction || "—"}
-</div>
-<div>
-<strong>Pilotage :</strong>{" "}
-{quickSummary.owner || state.coordination?.responsableActuel || "—"}
-</div>
-<div>
-<strong>Date cible :</strong>{" "}
-{state.targetDate ? formatShortDate(state.targetDate) : "Non définie"}
-</div>
-<div>
-<strong>Orientation :</strong> {state.selectedOrientation || "À définir"}
-</div>
-<div>
-<strong>Plan B :</strong> {state.orientationPlanB || "—"}
-</div>
-<div>
-<strong>Plan C :</strong> {state.orientationPlanC || "—"}
-</div>
-</div>
+  <div style={styles.synthesisHero}>
+    <div>
+      <div style={styles.infoLabel}>Orientation retenue</div>
+      <div style={styles.synthesisMain}>
+        {state.selectedOrientation || "À définir"}
+      </div>
+    </div>
 
-<div style={styles.sectionBanner}>
-<div style={styles.cardSubTitle}>Décisions</div>
+    <div style={styles.rowWrap}>
+      <span style={tagStyle(quickSummary.tone || "blue")}>
+        {quickSummary.block || "Aucun blocage majeur"}
+      </span>
+      <span style={tagStyle(complexity.color)}>
+        Complexité {complexity.label}
+      </span>
+    </div>
+  </div>
 
-<textarea
-value={state.decisionDraft}
-onChange={(e) => persistCopilot({ decisionDraft: e.target.value })}
-style={styles.textarea}
-placeholder="Tracer une décision de coordination..."
-/>
+  <div style={styles.grid3}>
+    <div style={styles.infoMiniCard}>
+      <div style={styles.infoLabel}>Date cible</div>
+      <div style={styles.copilotStatValue}>
+        {state.targetDate ? formatShortDate(state.targetDate) : "Non définie"}
+      </div>
+    </div>
 
-<div style={styles.rowWrap}>
-<button
-type="button"
-style={styles.primaryBtn}
-onClick={() => {
-const clean = String(state.decisionDraft || "").trim();
-if (!clean) return;
+    
 
-persistCopilot((prev) => ({
-decisionLog: [
-{
-id: `dec_${Date.now()}`,
-text: clean,
-date: new Date().toISOString(),
-},
-...prev.decisionLog,
-],
-decisionDraft: "",
-}));
-}}
->
-Ajouter la décision
-</button>
-</div>
 
-{state.decisionLog.length > 0 ? (
-<div style={styles.historyBox}>
-{state.decisionLog.map((decision) => (
-<div key={decision.id} style={styles.smallNote}>
-{formatDateTime(decision.date)} · {decision.text}
-</div>
-))}
-</div>
-) : (
-<div style={styles.smallNote}>Aucune décision tracée.</div>
-)}
-</div>
+    <div style={styles.infoMiniCard}>
+      <div style={styles.infoLabel}>Pilote</div>
+      <div>{quickSummary.owner || state.coordination?.responsableActuel || "—"}</div>
+    </div>
+
+    <div style={styles.infoMiniCard}>
+      <div style={styles.infoLabel}>Prochaine action</div>
+      <div>{quickSummary.nextAction || "—"}</div>
+    </div>
+  </div>
+
+  <div style={styles.grid2}>
+    <div style={styles.infoCard}>
+      <div style={styles.cardSubTitle}>Stratégie de sortie</div>
+
+      <div style={styles.summaryLine}>
+        <strong>Plan principal :</strong>{" "}
+        {quickSummary.strategy || state.selectedOrientation || "—"}
+      </div>
+      <div style={styles.summaryLine}>
+        <strong>Plan B :</strong> {state.orientationPlanB || "—"}
+      </div>
+      <div style={styles.summaryLine}>
+        <strong>Plan C :</strong> {state.orientationPlanC || "—"}
+      </div>
+
+      {state.hdjStatus ? (
+        <div style={styles.summaryHighlight}>
+          <strong>HDJ :</strong> {state.hdjStatus}
+          {state.hdjForm?.title ? ` · ${state.hdjForm.title}` : ""}
+          {state.hdjForm?.requestedDate
+            ? ` · ${formatShortDate(state.hdjForm.requestedDate)}`
+            : ""}
+        </div>
+      ) : null}
+
+      {state.selectedOrientation === "ASE / social" ? (
+        <div style={styles.summaryHighlight}>
+          <strong>ASE :</strong>{" "}
+          Lettre {state.formsState?.lettre_ase?.status || "À faire"} · Instance{" "}
+          {state.formsState?.instance_ase?.status || "À faire"}
+        </div>
+      ) : null}
+    </div>
+
+    <div style={styles.infoCard}>
+      <div style={styles.cardSubTitle}>Demandes externes</div>
+
+      {Object.keys(state.resourceFollowUp || {}).length === 0 ? (
+        <div style={styles.smallNote}>Aucune demande externe tracée.</div>
+      ) : (
+        <div style={styles.stackXs}>
+          {Object.entries(state.resourceFollowUp || {})
+            .slice(0, 5)
+            .map(([id, demand]) => {
+              const meta = getFollowMeta(demand);
+              return (
+                <div key={id} style={styles.summaryDemandRow}>
+                  <div>
+                    <strong>{demand.name || id}</strong>
+                    <div style={styles.smallNote}>
+                      {demand.nextStep || demand.sentTo || "Suivi externe"}
+                    </div>
+                  </div>
+                  <span style={tagStyle(meta.tone)}>{meta.label}</span>
+                </div>
+              );
+            })}
+        </div>
+      )}
+    </div>
+  </div>
+
+  <div style={styles.infoCard}>
+    <div style={styles.cardHeader}>
+      <div style={styles.cardSubTitle}>Décisions / transmissions</div>
+    </div>
+
+    <textarea
+      value={state.decisionDraft || ""}
+      onChange={(e) => persistCopilot({ decisionDraft: e.target.value })}
+      style={styles.textarea}
+      placeholder="Tracer une décision de coordination..."
+    />
+
+    <div style={styles.rowWrap}>
+      <button
+        type="button"
+        style={styles.primaryBtn}
+        onClick={() => {
+          const clean = String(state.decisionDraft || "").trim();
+          if (!clean) return;
+
+          persistCopilot((prev) => ({
+            decisionLog: [
+              {
+                id: `dec_${Date.now()}`,
+                text: clean,
+                date: new Date().toISOString(),
+                author: currentUser.name,
+              },
+              ...safeArray(prev.decisionLog),
+            ],
+            decisionDraft: "",
+          }));
+        }}
+      >
+        Ajouter la décision
+      </button>
+    </div>
+
+    {state.decisionLog?.length > 0 ? (
+      <div style={styles.timelineBox}>
+        {state.decisionLog.slice(0, 8).map((decision) => (
+          <div key={decision.id} style={styles.timelineItem}>
+            <div style={styles.timelineDot} />
+            <div>
+              <div style={styles.timelineText}>{decision.text}</div>
+              <div style={styles.smallNote}>
+                {formatDateTime(decision.date)}
+                {decision.author ? ` · ${decision.author}` : ""}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div style={styles.smallNote}>Aucune décision tracée.</div>
+    )}
+  </div>
 </section>
 
 <button
@@ -7014,5 +7836,162 @@ justifyContent: "space-between",
 alignItems: "center",
 gap: 12,
 flexWrap: "wrap",
+},
+
+hdjErrorBox: {
+  background: "#FEF2F2",
+  border: "1px solid #FECACA",
+  borderRadius: 8,
+  padding: 12,
+  marginBottom: 12,
+},
+
+hdjErrorTitle: {
+  color: "#991B1B",
+  fontWeight: 600,
+  marginBottom: 6,
+},
+
+hdjErrorText: {
+  color: "#7F1D1D",
+  margin: 0,
+  whiteSpace: "pre-wrap",
+  fontFamily: "inherit",
+},
+copilotHero: {
+  border: "1px solid #bfdbfe",
+  background: "linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)",
+  borderRadius: 20,
+  padding: 20,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 16,
+  alignItems: "center",
+  flexWrap: "wrap",
+},
+
+copilotHeroTitle: {
+  fontSize: 32,
+  fontWeight: 900,
+  color: "#17376a",
+  lineHeight: 1.1,
+},
+
+copilotKpiGrid: {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 12,
+},
+
+compactPostit: {
+  width: "100%",
+  minHeight: 110,
+  padding: 12,
+  borderRadius: 12,
+  display: "grid",
+  gap: 8,
+  boxShadow: "0 4px 14px rgba(15, 23, 42, 0.06)",
+},
+
+synthesisHero: {
+  border: "1px solid #bfdbfe",
+  background: "linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)",
+  borderRadius: 18,
+  padding: 18,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 16,
+  alignItems: "center",
+  flexWrap: "wrap",
+},
+
+synthesisMain: {
+  fontSize: 30,
+  fontWeight: 900,
+  color: "#17376a",
+  lineHeight: 1.1,
+},
+
+summaryLine: {
+  fontSize: 14,
+  color: "#334155",
+  lineHeight: 1.5,
+},
+
+summaryHighlight: {
+  border: "1px solid #dbeafe",
+  background: "#eff6ff",
+  borderRadius: 12,
+  padding: 10,
+  fontSize: 13,
+  color: "#1e3a8a",
+  fontWeight: 700,
+},
+
+summaryDemandRow: {
+  border: "1px solid #e5e7eb",
+  background: "#ffffff",
+  borderRadius: 12,
+  padding: 10,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  alignItems: "center",
+},
+
+timelineBox: {
+  display: "grid",
+  gap: 10,
+  marginTop: 6,
+},
+
+timelineItem: {
+  display: "grid",
+  gridTemplateColumns: "14px 1fr",
+  gap: 10,
+  alignItems: "start",
+},
+
+timelineDot: {
+  width: 10,
+  height: 10,
+  borderRadius: "50%",
+  background: "#2563eb",
+  marginTop: 5,
+},
+
+timelineText: {
+  fontSize: 13,
+  color: "#0f172a",
+  fontWeight: 700,
+  lineHeight: 1.4,
+},
+
+inputError: {
+  borderColor: "#ef4444",
+  background: "#fff1f2",
+},
+
+boxError: {
+  borderColor: "#ef4444",
+  background: "#fff1f2",
+},
+
+hdjSuccessBox: {
+  background: "#ecfdf5",
+  border: "1px solid #6ee7b7",
+  borderRadius: 12,
+  padding: 12,
+  color: "#065f46",
+  fontWeight: 800,
+},
+
+hdjInfoBox: {
+  background: "#eff6ff",
+  border: "1px solid #bfdbfe",
+  borderRadius: 12,
+  padding: 12,
+  color: "#1e3a8a",
+  fontWeight: 800,
 },
 };

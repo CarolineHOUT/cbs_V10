@@ -678,21 +678,47 @@ export default function IncidentView() {
     consentSignatureDataUrl: "",
   });
 
-  useEffect(() => {
-    if (!patient) return;
-    const stored = readJsonStorage(`${INCIDENT_UI_PREFIX}${patient.id}`, null);
-    if (stored) {
-      setIncidentUi((prev) => ({
-        ...prev,
-        ...stored,
-      }));
-    } else {
-      setIncidentUi((prev) => ({
-        ...prev,
-        lastSeenLocation: patient?.service || "",
-      }));
-    }
-  }, [patient]);
+ 
+useEffect(() => {
+  if (!patient) return;
+
+  const stored = readJsonStorage(`${INCIDENT_UI_PREFIX}${patient.id}`, {});
+  const vulnerabilityPhoto = patient?.vulnerabilityPhoto || {};
+  const consent = vulnerabilityPhoto?.consent || {};
+  const lastPhoto = vulnerabilityPhoto?.lastPhoto || {};
+
+  setIncidentUi((prev) => ({
+    ...prev,
+    ...stored,
+
+    lastSeenLocation: stored?.lastSeenLocation || patient?.service || "",
+
+    patientPhotoDataUrl:
+      lastPhoto?.imageData || stored?.patientPhotoDataUrl || "",
+
+    patientPhotoCapturedAt:
+      lastPhoto?.createdAt || stored?.patientPhotoCapturedAt || "",
+
+    consentAccepted:
+      typeof consent?.accepted === "boolean"
+        ? consent.accepted
+        : !!stored?.consentAccepted,
+
+    consentSignerName:
+      consent?.signerName || stored?.consentSignerName || "",
+
+    consentSignedAt:
+      consent?.signedAt || stored?.consentSignedAt || "",
+
+    consentSignatureDataUrl:
+      consent?.signatureImage ||
+      consent?.signatureDataUrl ||
+      stored?.consentSignatureDataUrl ||
+      "",
+  }));
+}, [patient]);
+
+
 
   useEffect(() => {
     if (!patient) return;
@@ -982,6 +1008,7 @@ const closeIncident = () => {
   }
 
   const statusMap = {
+    declared: { label: "Disparition déclarée", color: "red" },
     created: { label: "Disparition déclarée", color: "red" },
     internal_search: { label: "Recherche interne", color: "amber" },
     security_investigation: { label: "Sécurité en cours", color: "amber" },
@@ -1418,27 +1445,10 @@ const closeIncident = () => {
                 <div style={{ display: "grid", gap: 16 }}>
                   <SectionCard
                     title="Photo du patient"
-                    subtitle="Prise de photo pour identification opérationnelle et remontée dans le workflow."
+                    subtitle="Photo issue du dossier patient, utilisée pour l’identification opérationnelle."
                   >
                     <div style={{ display: "grid", gap: 12 }}>
-                      <label style={{ display: "grid", gap: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>
-                          Capturer / importer une photo
-                        </span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          onChange={handlePatientPhotoChange}
-                          style={{
-                            minHeight: 42,
-                            borderRadius: 12,
-                            border: "1px solid #dbe4f0",
-                            padding: "8px 12px",
-                            background: "#fff",
-                          }}
-                        />
-                      </label>
+                      
 
                       {incidentUi.patientPhotoDataUrl ? (
                         <div

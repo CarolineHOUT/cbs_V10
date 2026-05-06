@@ -1,15 +1,26 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import AppHeader from "./components/AppHeader";
 import { AppShell } from "./components/AppShell";
 import { usePatientSimulation } from "./context/PatientSimulationContext";
 import { HOSPITAL_SERVICES } from "./data/hospitalServices";
 import { AdminUsers } from "./views/AdminUsers";
 import { HOSPITAL_BEDS } from "./data/hospitalBeds";
-
+import { USER_ROLES, canAccessBioCleaningSettings } from "./config/roles";
 import SignatureCanvas from "react-signature-canvas";
-
-
+import BioCleaningSettingsPanel from "./components/BioCleaningSettingsPanel";
+import { useAuth } from "./auth/AuthContext";
+import { DEFAULT_BIO_CLEANING_SETTINGS } from "./config/bioCleaningConfig";
+import BioCleaningSettings from "./components/BioCleaningSettings";
+import { getEstimatedCleaningMinutesFromSettings } from "./domain/bioCleaning/getEstimatedCleaningMinutes";
+import SettingsPage from "./components/SettingsPage";
+import { generateDPIPatients } from "./data/dpiSeedPatients";
+import BioCleaningAgentView from "./components/BioCleaningAgentView";
+import BioCleaningManagerView from "./components/BioCleaningManagerView";
+import {
+isPediatricPatient,
+getPediatricDecision,
+} from "./domain/pediatrie/pediatrieDecisionEngine";
 function safeArray(value) {
 return Array.isArray(value) ? value : value ? [value] : [];
 }
@@ -23,6 +34,351 @@ if (!value) return "—";
 const date = new Date(value);
 if (Number.isNaN(date.getTime())) return "—";
 return date.toLocaleDateString("fr-FR");
+}
+
+function formatDayAndTime(value) {
+if (!value) return "—";
+
+const date = value instanceof Date ? value : new Date(value);
+if (Number.isNaN(date.getTime())) return "—";
+
+const now = new Date();
+
+const sameDay =
+date.getFullYear() === now.getFullYear() &&
+date.getMonth() === now.getMonth() &&
+date.getDate() === now.getDate();
+
+const tomorrow = new Date(now);
+tomorrow.setDate(now.getDate() + 1);
+
+const isTomorrow =
+date.getFullYear() === tomorrow.getFullYear() &&
+date.getMonth() === tomorrow.getMonth() &&
+date.getDate() === tomorrow.getDate();
+
+const timePart = date.toLocaleTimeString("fr-FR", {
+hour: "2-digit",
+minute: "2-digit",
+});
+
+if (sameDay) return `aujourd’hui ${timePart}`;
+if (isTomorrow) return `demain ${timePart}`;
+
+const datePart = date.toLocaleDateString("fr-FR", {
+day: "2-digit",
+month: "2-digit",
+});
+
+return `${datePart} ${timePart}`;
+}
+
+
+
+function getCleaningDuration(patient) {
+const risk = patient?.infectionRisk;
+
+if (risk?.isolation) return 90;
+if (risk?.hygieneRisk) return 60;
+return 30;
+}
+
+
+
+
+function isRecoveryWithinHours(recovery, hours) {
+  const availableAt =
+    recovery?.recoverableCommittedAt ||
+    recovery?.recoverableForecastAt ||
+    recovery?.confirmedAvailableAt ||
+    recovery?.forecastAvailableAt ||
+    recovery?.availableAt;
+
+  if (!availableAt) return false;
+
+  const date = new Date(availableAt);
+  if (Number.isNaN(date.getTime())) return false;
+
+  const diffHours = (date.getTime() - Date.now()) / (1000 * 60 * 60);
+
+  // Si c'est déjà dépassé, c'est urgent => compte dans < 2h, < 4h, etc.
+  return diffHours <= hours && diffHours >= -24;
+}
+function getBedAvailableAt(patient) {
+const discharge = patient?.discharge;
+
+if (!discharge?.plannedAt) return null;
+
+const exitTime = new Date(discharge.plannedAt);
+const cleaningMinutes = getCleaningDuration(patient);
+
+return new Date(exitTime.getTime() + cleaningMinutes * 60000);
+}
+
+function isBedRecoverable(patient) {
+const availableAt = getBedAvailableAt(patient);
+if (!availableAt) return false;
+
+const now = new Date();
+return availableAt <= new Date(now.getTime() + 4 * 60 * 60000);
+}
+
+function normalizePlannedAt(value) {
+  if (!value) return "";
+
+  if (typeof value !== "string") return value;
+
+  if (value.includes("T")) return value;
+
+  const match = value.match(
+    /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/
+  );
+
+  if (!match) return value;
+
+  const [, dd, mm, yyyy, hh, min, ss] = match;
+
+  // 👉 ICI le fix
+  const hours = hh || "14";
+  const minutes = min || "00";
+  const seconds = ss || "00";
+
+  return `${yyyy}-${mm}-${dd}T${hours}:${minutes}:${seconds}`;
+}
+
+
+function createEmptyBedRecovery() {
+return {
+bedId: "",
+patientId: "",
+service: "",
+chambre: "",
+lit: "",
+
+dischargeStatus: "none", // none | planned | effective
+cleaningType: "STANDARD", // STANDARD | RENFORCE | ISOLEMENT
+estimatedMinutes: 0,
+
+forecastAvailableAt: "",
+confirmedAvailableAt: "",
+availableAt: "",
+confidence: "low", // low | medium | high
+
+recoverableStatus: "none", // none | forecast | committed
+recoverableForecastAt: "",
+recoverableCommittedAt: "",
+recoverableConfidence: "low",
+
+context: {
+medicallyReady: false,
+dischargeValidated: false,
+dischargePlannedAt: "",
+dischargeEffectiveAt: "",
+isolation: false,
+hygieneRisk: false,
+partialDischarge: false,
+},
+};
+}
+function addMinutesToIso(value, minutes) {
+if (!value) return "";
+const date = new Date(value);
+if (Number.isNaN(date.getTime())) return "";
+return new Date(date.getTime() + minutes * 60000).toISOString();
+}
+
+function getCleaningDurationFromContext(context) {
+if (context?.isolation) return 120;
+if (context?.hygieneRisk) return 75;
+return 45;
+}
+
+function getCleaningTypeFromContext(context) {
+if (context?.isolation) return "ISOLEMENT";
+if (context?.hygieneRisk) return "RENFORCE";
+return "STANDARD";
+}
+
+function computeAvailabilityStats(recoveries) {
+const now = new Date();
+
+const stats = {
+availableNow: 0,
+availableIn6h: 0,
+availableIn12h: 0,
+availableIn24h: 0,
+availableIn48h: 0,
+};
+
+recoveries.forEach((r) => {
+if (!r.availableAt) return;
+
+const date = new Date(r.availableAt);
+if (Number.isNaN(date.getTime())) return;
+
+const diffHours = (date - now) / (1000 * 60 * 60);
+
+if (diffHours <= 0) stats.availableNow++;
+if (diffHours <= 6) stats.availableIn6h++;
+if (diffHours <= 12) stats.availableIn12h++;
+if (diffHours <= 24) stats.availableIn24h++;
+if (diffHours <= 48) stats.availableIn48h++;
+});
+
+return stats;
+}
+
+
+
+function buildBedRecovery(patient, bed, bioCleaningSettings) {
+
+const recovery = createEmptyBedRecovery();
+
+recovery.bedId = bed?.bedId || "";
+recovery.patientId = patient?.id || "";
+recovery.service = patient?.service || "";
+recovery.chambre = patient?.chambre || "";
+recovery.lit = patient?.lit || "";
+
+const planning = patient?.dischargePlanning || {};
+const discharge = patient?.discharge || {};
+const copilot = patient?.copilotState || {};
+const copilotPlannedAt =
+copilot?.dischargePlannedAt ||
+(
+copilot?.dischargePlannedDate && copilot?.dischargePlannedTime
+? `${copilot.dischargePlannedDate}T${copilot.dischargePlannedTime}:00`
+: ""
+);
+
+recovery.context.medicallyReady =
+!!planning?.medicallyReady ||
+!!discharge?.medicallyReady ||
+!!patient?.medicalReady ||
+!!patient?.sortantMedical ||
+!!patient?.medicalReadiness?.isMedicallyReady;
+
+recovery.context.dischargeValidated =
+!!planning?.validated ||
+!!discharge?.validated ||
+copilot?.targetDateStatus === "validée";
+
+
+
+recovery.context.dischargeEffectiveAt =
+planning?.effectiveAt ||
+discharge?.effectiveAt ||
+copilot?.dischargeEffectiveAt ||
+"";
+
+recovery.context.isolation = !!patient?.infectionRisk?.isolation;
+recovery.context.hygieneRisk = !!patient?.infectionRisk?.hygieneRisk;
+recovery.context.partialDischarge = !!patient?.partialDischarge;
+
+
+recovery.cleaningType = getCleaningTypeFromPatient(patient);
+recovery.estimatedMinutes = getEstimatedCleaningMinutesFromSettings(
+patient,
+bioCleaningSettings
+);
+
+
+
+const rawPlannedAt =
+  normalizePlannedAt(copilot?.dischargePlannedAt) ||
+  normalizePlannedAt(copilotPlannedAt) ||
+  normalizePlannedAt(discharge?.plannedAt) ||
+  normalizePlannedAt(planning?.plannedAt) ||
+  normalizePlannedAt(planning?.targetDateValidated) ||
+  normalizePlannedAt(patient?.dateSortiePrevue) ||
+  "";
+
+const plannedAt = rawPlannedAt
+? rawPlannedAt.replace(" ", "T")
+: "";
+
+recovery.context.dischargePlannedAt = plannedAt;
+console.log("PLANNED AT RECOVERY", patient?.nom, plannedAt, patient?.copilotState);
+
+
+
+const effectiveAt = normalizePlannedAt(recovery.context.dischargeEffectiveAt);
+
+
+if (effectiveAt) {
+recovery.dischargeStatus = "effective";
+recovery.confirmedAvailableAt = addMinutesToIso(effectiveAt, recovery.estimatedMinutes);
+recovery.availableAt = recovery.confirmedAvailableAt;
+recovery.confidence = "high";
+
+recovery.recoverableStatus = "committed";
+recovery.recoverableCommittedAt = recovery.confirmedAvailableAt;
+recovery.recoverableConfidence = "high";
+
+return recovery;
+}
+
+if (plannedAt) {
+recovery.dischargeStatus = "planned";
+recovery.forecastAvailableAt = addMinutesToIso(plannedAt, recovery.estimatedMinutes);
+recovery.availableAt = recovery.forecastAvailableAt;
+recovery.confidence = recovery.context.dischargeValidated ? "medium" : "low";
+
+recovery.recoverableStatus = "forecast";
+recovery.recoverableForecastAt = recovery.forecastAvailableAt;
+recovery.recoverableConfidence = recovery.confidence;
+
+return recovery;
+}
+
+if (recovery.context.medicallyReady) {
+recovery.dischargeStatus = "planned";
+recovery.confidence = "low";
+recovery.recoverableStatus = "forecast";
+recovery.recoverableConfidence = "low";
+}
+
+return recovery;
+}
+
+
+
+
+function getRecoveryState(patient, bed, settings) {
+  const recovery = buildBedRecovery(
+    patient,
+    bed,
+    settings?.bioCleaning
+  ) || createEmptyBedRecovery();
+
+  if (recovery.dischargeStatus === "effective") {
+    return { status: "recoverable", label: "Sortie effectuée" };
+  }
+
+  if (
+    recovery.dischargeStatus === "planned" &&
+    recovery.context?.dischargeValidated
+  ) {
+    return { status: "recoverable", label: "Sortie validée" };
+  }
+
+  if (recovery.dischargeStatus === "planned") {
+    return { status: "planned", label: "Sortie prévue" };
+  }
+
+  return { status: "occupied", label: "Occupé" };
+}
+
+function formatShortTime(value) {
+if (!value) return "—";
+
+const date = value instanceof Date ? value : new Date(value);
+if (Number.isNaN(date.getTime())) return "—";
+
+return date.toLocaleTimeString("fr-FR", {
+hour: "2-digit",
+minute: "2-digit",
+});
 }
 
 function getServiceCapacity(service) {
@@ -49,19 +405,24 @@ return Math.max(0, totalCapacity - occupancy);
 }
 
 function getAvoidableDays(patient) {
-return Number(patient?.avoid || 0);
+  const value =
+    patient?.dateSortantMedicalement ||
+    patient?.medicalReadyDate ||
+    patient?.sortantMedicalementDate;
+
+  if (!value) return 0;
+
+  const start = new Date(value);
+  if (Number.isNaN(start.getTime())) return 0;
+
+  const today = new Date();
+
+  const diff = today.getTime() - start.getTime();
+
+  return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
 }
 
-function getLengthOfStay(patient) {
-const entry = patient?.dateEntree || patient?.admissionDate;
-if (!entry) return 0;
-const start = new Date(entry);
-const today = new Date();
-const diff = Math.floor(
-(today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-);
-return Math.max(0, diff);
-}
+
 
 function getTargetDate(patient) {
 return (
@@ -123,12 +484,25 @@ patient?.medicalReadiness?.isMedicallyReady
 );
 }
 
+
 function isVulnerable(patient) {
 return (
 Boolean(patient?.isVulnerable) ||
 safeArray(patient?.vulnerability?.criteria).length > 0 ||
 safeArray(patient?.vulnerabilityProfiles).length > 0
 );
+}
+
+function getCleaningLabel(patient) {
+if (patient?.infectionRisk?.isolation) return "ISOLEMENT";
+if (patient?.infectionRisk?.hygieneRisk) return "RENFORCÉ";
+return "STANDARD";
+}
+
+function getCleaningLoad(patient) {
+if (patient?.infectionRisk?.isolation) return 3;
+if (patient?.infectionRisk?.hygieneRisk) return 2;
+return 1;
 }
 
 function vulnerabilityCount(patient) {
@@ -165,6 +539,25 @@ patient?.blocage ||
 );
 }
 
+function isWithoutSolution(patient) {
+const solution = normalizeText(getSolutionLabel(patient));
+
+return (
+!solution ||
+solution === "aucune" ||
+solution.includes("non defini")
+);
+}
+
+function isCrisisTriggerPatient(patient) {
+return (
+getBlockageLabel(patient) !== "Non défini" &&
+isWithoutSolution(patient) &&
+getLengthOfStay(patient) >= 7
+);
+}
+
+
 function getPatientSubject(patient) {
 const block = getBlockageLabel(patient);
 const solution = getSolutionLabel(patient);
@@ -189,6 +582,91 @@ if (isVulnerable(patient)) return "Surveillance vulnérabilité";
 return "À qualifier";
 }
 
+function getCleaningType(patient) {
+  if (patient?.infectionRisk?.isolation) {
+    const type = patient?.infectionRisk?.type;
+
+    if (type === "air") return "ISO AIR";
+    if (type === "contact") return "ISO CONTACT";
+    if (type === "gouttelettes") return "ISO GOUT";
+    return "IS";
+  }
+
+  if (patient?.infectionRisk?.hygieneRisk) {
+    return "RENFORCÉ";
+  }
+
+  return "STANDARD";
+}
+
+function getLengthOfStay(patient) {
+const service = String(
+patient?.service ||
+patient?.serviceCode ||
+patient?.unit ||
+""
+).toLowerCase();
+
+// HDJ = hospitalisation de jour = max 24h
+if (service.includes("hdj")) return 0;
+
+const entryDate =
+patient?.dateEntree ||
+patient?.admissionDate ||
+patient?.dateAdmission;
+
+if (!entryDate) return null;
+
+const start = new Date(entryDate);
+const today = new Date();
+
+const diff = Math.floor(
+(today - start) / (1000 * 60 * 60 * 24)
+);
+
+return diff >= 0 ? diff : 0;
+}
+
+
+function getBedExitLabel(patient) {
+const raw =
+patient?.dischargePlannedAt ||
+patient?.dischargeDateTime ||
+patient?.dateSortiePrevue ||
+(patient?.dischargePlannedDate
+? `${patient.dischargePlannedDate}T${patient.dischargePlannedTime || "12:00"}`
+: null) ||
+(patient?.dischargePlanning?.targetDateEnvisaged
+? `${patient.dischargePlanning.targetDateEnvisaged}T${
+patient?.dischargePlannedTime || "12:00"
+}`
+: null) ||
+patient?.dischargePlanning?.targetDate ||
+patient?.targetDate;
+
+if (!raw) return null;
+
+const exitDate = new Date(raw);
+if (Number.isNaN(exitDate.getTime())) return null;
+
+const today = new Date();
+const sameDay =
+exitDate.getFullYear() === today.getFullYear() &&
+exitDate.getMonth() === today.getMonth() &&
+exitDate.getDate() === today.getDate();
+
+const time = exitDate.toLocaleTimeString("fr-FR", {
+hour: "2-digit",
+minute: "2-digit",
+});
+
+return sameDay
+? `Sortie aujourd’hui ${time}`
+: `Sortie ${formatShortDate(exitDate)} ${time}`;
+}
+
+
+
 function isNewPatient(patient, consultedIds, highlightPatientId) {
 return (
 !consultedIds.has(String(patient?.id)) &&
@@ -201,6 +679,8 @@ return (
 isMedicalReady(patient) &&
 (getAvoidableDays(patient) > 0 ||
 Boolean(patient?.dateSortiePrevue) ||
+Boolean(patient?.dischargePlannedAt) ||
+
 Boolean(patient?.dischargePlanning?.targetDateValidated) ||
 Boolean(patient?.dischargePlanning?.targetDateEnvisaged) ||
 Boolean(patient?.dischargePlanning?.solutionFound))
@@ -317,6 +797,7 @@ function getDominantBlockage(servicePatients) {
 const counts = servicePatients.reduce((acc, patient) => {
 const label = getBlockageLabel(patient);
 acc[label] = (acc[label] || 0) + 1;
+
 return acc;
 }, {});
 
@@ -587,6 +1068,24 @@ const BED_REASON_OPTIONS = [
 { value: BED_BLOCK_REASONS.ISOLATION, label: "Précaution / isolement" },
 ];
 
+
+const ROOM_ZONES = [
+{ id: "patient", label: "Zone patient", priority: 1 },
+{ id: "sanitary", label: "Sanitaires", priority: 1 },
+{ id: "contact", label: "Surfaces de contact", priority: 2 },
+{ id: "furniture", label: "Mobilier", priority: 3 },
+{ id: "floor", label: "Sols", priority: 4 },
+];
+
+const CLEANING_TYPES = {
+standard: { label: "Standard", estimatedMinutes: 30 },
+renforce: { label: "Renforcé", estimatedMinutes: 45 },
+isolement: { label: "Isolement", estimatedMinutes: 60 },
+partiel: { label: "Partiel", estimatedMinutes: 20 },
+};
+
+
+
 function formatDateTimeLocal(value) {
 if (!value) return "";
 const date = new Date(value);
@@ -615,6 +1114,16 @@ const max = now + 48 * 60 * 60 * 1000;
 
 return date.getTime() >= now && date.getTime() <= max;
 }
+
+function getCleaningTypeFromPatient(patient) {
+if (patient?.infectionRisk?.isolation) return "isolement";
+if (patient?.infectionRisk?.hygieneRisk) return "renforce";
+if (patient?.partialDischarge) return "partiel";
+return "standard";
+}
+
+
+
 
 function normalizeBedLabel(value) {
 const v = normalizeText(value);
@@ -750,51 +1259,84 @@ isWithin48Hours(bedState?.startAt)
 );
 }
 
-function computeBedMetricsForService(serviceItem, bedStates, patientBedMap) {
-let totalBeds = 0;
-let availableBeds = 0;
-let occupiedBeds = 0;
-let blockedBeds = 0;
-let reservedBeds = 0;
-let isolationBeds = 0;
-let recoverable48h = 0;
-let forecastBlockages48h = 0;
+function computeBedMetricsForService(
+  serviceItem,
+  bedStates,
+  patientBedMap,
+  bioCleaningSettings
+) {
+  let totalBeds = 0;
+  let availableBeds = 0;
+  let occupiedBeds = 0;
+  let blockedBeds = 0;
+  let reservedBeds = 0;
+  let isolationBeds = 0;
+  let recoverable2h = 0;
+  let recoverable4h = 0;
+  let recoverable6h = 0;
+  let recoverable12h = 0;
+  let recoverable24h = 0;
+  let recoverable48h = 0;
+  let forecastBlockages48h = 0;
+  let bioCleaningLoad = 0;
 
-safeArray(serviceItem?.rooms).forEach((room) => {
-safeArray(room?.beds).forEach((bed) => {
-totalBeds += 1;
+  safeArray(serviceItem?.rooms).forEach((room) => {
+    safeArray(room?.beds).forEach((bed) => {
+      totalBeds += 1;
 
-const key = getPatientBedMapKey(room.roomNumber, bed.label);
-const linkedPatient = patientBedMap[key];
+      const key = getPatientBedMapKey(room.roomNumber, bed.label);
+    const linkedPatient = patientBedMap[key];
+
 const bedState = bedStates[bed.bedId] || {};
 const status = getBedComputedStatus(bedState, linkedPatient);
 
-if (status === BED_STATUSES.AVAILABLE) availableBeds += 1;
-if (status === BED_STATUSES.OCCUPIED) occupiedBeds += 1;
-if (status === BED_STATUSES.BLOCKED) blockedBeds += 1;
-if (status === BED_STATUSES.RESERVED) reservedBeds += 1;
-if (status === BED_STATUSES.ISOLATION) isolationBeds += 1;
-
-if (isBedRecoverableWithin48h(bedState, linkedPatient)) {
-recoverable48h += 1;
+if (linkedPatient) {
+  bioCleaningLoad += getCleaningLoad(linkedPatient);
 }
 
-if (isForecastBlockageWithin48h(bedState)) {
-forecastBlockages48h += 1;
-}
-});
-});
+const recoveryDetail = linkedPatient
+  ? buildBedRecovery(
+      linkedPatient,
+      { bedId: bed.bedId },
+      bioCleaningSettings
+    )
+  : null;
+      
 
-return {
-totalBeds,
-availableBeds,
-occupiedBeds,
-blockedBeds,
-reservedBeds,
-isolationBeds,
-recoverable48h,
-forecastBlockages48h,
-};
+  
+
+      if (status === BED_STATUSES.AVAILABLE) availableBeds += 1;
+      if (status === BED_STATUSES.OCCUPIED) occupiedBeds += 1;
+      if (status === BED_STATUSES.BLOCKED) blockedBeds += 1;
+      if (status === BED_STATUSES.RESERVED) reservedBeds += 1;
+      if (status === BED_STATUSES.ISOLATION) isolationBeds += 1;
+
+      if (recoveryDetail?.recoverableStatus !== "none") {
+        if (isRecoveryWithinHours(recoveryDetail, 2)) recoverable2h += 1;
+        if (isRecoveryWithinHours(recoveryDetail, 4)) recoverable4h += 1;
+        if (isRecoveryWithinHours(recoveryDetail, 6)) recoverable6h += 1;
+        if (isRecoveryWithinHours(recoveryDetail, 12)) recoverable12h += 1;
+        if (isRecoveryWithinHours(recoveryDetail, 24)) recoverable24h += 1;
+        if (isRecoveryWithinHours(recoveryDetail, 48)) recoverable48h += 1;
+      }
+    });
+  });
+
+  return {
+    totalBeds,
+    availableBeds,
+    occupiedBeds,
+    blockedBeds,
+    reservedBeds,
+    isolationBeds,
+    recoverable2h,
+    recoverable4h,
+    recoverable6h,
+    recoverable12h,
+    recoverable24h,
+    recoverable48h,
+    forecastBlockages48h,
+  };
 }
 
 function getBedShortLabel(label, roomType) {
@@ -803,11 +1345,45 @@ if (roomType === "single" || normalized === "L") return "";
 return normalized;
 }
 
+function formatShortDateTime(dateString) {
+  if (!dateString) return "";
+
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function Dashboard({ user, onLogout }) {
+  const currentUserRole = user?.role;
+
+
 const [view, setView] = useState("dashboard");
 
+const [settings, setSettings] = useState({
+rules: {
+dmsThreshold: 10,
+avoidableDaysTarget: 0,
+recoveryWindowHours: 48,
+criticalPatientsThreshold: 1,
+fastExitThresholdHours: 24,
+directionAlertThreshold: 2,
+},
+bioCleaning: {
+zones: [],
+scenarios: [],
+},
+});
+
+
 const simulation = usePatientSimulation();
-const { patients, updatePatient, resetAllPatientsToQualifier } = simulation;
+const { patients, updatePatient } = simulation;
+const resetPatientsFromDPI = simulation.resetPatientsFromDPI;
 const createIncidentForPatient = simulation.createIncidentForPatient;
 const incidents = simulation.incidents || [];
 
@@ -820,7 +1396,89 @@ const [selectedServices, setSelectedServices] = useState([]);
 const [activeFilter, setActiveFilter] = useState("all");
 const [consultedIds, setConsultedIds] = useState(() => new Set());
 const [mode, setMode] = useState("service");
+const [bioAgents, setBioAgents] = useState(() => {
+  
+const saved = localStorage.getItem("bioAgents");
+return saved ? JSON.parse(saved) : [
+{
+id: "ag_1",
+name: "Sophie Martin",
+sector: "Cardiologie",
+workCycleId: "matin",
+status: "available",
+},
+{
+id: "ag_2",
+name: "Karim Benali",
+sector: "Cardiologie",
+workCycleId: "matin",
+status: "available",
+},
+{
+id: "ag_3",
+name: "Julie Dupont",
+sector: "Chirurgie",
+workCycleId: "matin",
+status: "available",
+},
+];
+});
+
+const [bioTasks, setBioTasks] = useState(() => {
+const saved = localStorage.getItem("bioTasks");
+return saved ? JSON.parse(saved) : [];
+});
+
+function handleUpdateBioTask(taskId, patch) {
+  setBioTasks((prevTasks) => {
+    const updatedTasks = prevTasks.map((task) =>
+      task.id === taskId
+        ? {
+            ...task,
+            ...patch,
+            updatedAt: new Date().toISOString(),
+          }
+        : task
+    );
+
+    const updatedTask = updatedTasks.find((task) => task.id === taskId);
+
+    if (
+      updatedTask?.status === "done" &&
+      updatedTask?.taskType === "exit" &&
+      updatedTask?.patientId &&
+      typeof updatePatient === "function"
+    ) {
+      updatePatient(updatedTask.patientId, {
+        lit: null,
+        discharged: true,
+        discharge: {
+          ...(patients.find((p) => p.id === updatedTask.patientId)?.discharge || {}),
+          effectiveAt: new Date().toISOString(),
+        },
+      });
+    }
+
+    return updatedTasks;
+  });
+}
+
+useEffect(() => {
+localStorage.setItem("bioAgents", JSON.stringify(bioAgents));
+}, [bioAgents]);
+
+useEffect(() => {
+localStorage.setItem("bioTasks", JSON.stringify(bioTasks));
+}, [bioTasks]);
 const [vulnPopoverId, setVulnPopoverId] = useState(null);
+const [bioDemoAgentView, setBioDemoAgentView] = useState(false);
+
+const demoBioAgentUser = {
+id: "ag_1",
+matricule: "ag_1",
+nom: "Sophie Martin",
+role: "BIO_AGENT",
+};
 const [vulnerabilityModalPatient, setVulnerabilityModalPatient] = useState(null);
 const [vulnerabilityForm, setVulnerabilityForm] = useState({
 criteria: [],
@@ -859,6 +1517,21 @@ prev.includes(service)
 );
 }
 
+const [appSettings, setAppSettings] = useState({
+rules: {
+dmsThreshold: 10,
+avoidableDaysTarget: 0,
+recoveryWindowHours: 48,
+criticalPatientsThreshold: 1,
+fastExitThresholdHours: 24,
+directionAlertThreshold: 2,
+},
+bioCleaning: {
+zones: [],
+scenarios: [],
+},
+});
+
 const services = useMemo(
 () =>
 Array.from(
@@ -883,17 +1556,10 @@ setSelectedServices([]);
 }
 
 function handleResetPatients() {
-  const confirmed = window.confirm(
-    "Remettre tous les patients à 'À qualifier' ?"
-  );
-
-  if (!confirmed) return;
-
-  if (typeof resetAllPatientsToQualifier === "function") {
-    resetAllPatientsToQualifier();
-    setActiveFilter("all");
-    setSelectedServices([]);
-  }
+  alert(typeof resetPatientsFromDPI);
+  resetPatientsFromDPI();
+  setActiveFilter("all");
+  setSelectedServices([]);
 }
 
 function openPatient(patientId, target = "patient") {
@@ -917,20 +1583,104 @@ navigate(`/patient/${patientId}`);
 }
 
 function toggleMedicalReady(patient) {
-const nextValue = !isMedicalReady(patient);
+  const nextValue = !isMedicalReady(patient);
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
 
-if (typeof updatePatient === "function") {
 updatePatient(patient.id, {
-medicalReady: nextValue,
-sortantMedical: nextValue,
-medicalReadyAt: nextValue ? new Date().toISOString() : "",
-medicalReadiness: {
-...(patient?.medicalReadiness || {}),
-isMedicallyReady: nextValue,
-activatedAt: nextValue ? new Date().toISOString() : "",
-},
+  medicalReady: nextValue,
+  sortantMedical: nextValue,
+
+  medicalReadyAt: nextValue ? now : "",
+  medicalReadyDate: nextValue ? today : "",
+  dateSortantMedicalement: nextValue ? today : "",
+  sortantMedicalementDate: nextValue ? today : "",
+
+  medicalReadiness: {
+    ...(patient?.medicalReadiness || {}),
+    isMedicallyReady: nextValue,
+    activatedAt: nextValue ? now : "",
+  },
 });
 }
+
+function miniStatusButton(active) {
+return {
+display: "flex",
+alignItems: "center",
+gap: 6,
+padding: "4px 8px",
+borderRadius: 10,
+border: "1px solid #e2e8f0",
+background: active ? "#ffffff" : "transparent",
+color: "#334155",
+fontSize: 11,
+fontWeight: 800,
+cursor: "pointer",
+};
+}
+
+function miniInlineSwitch(active, color) {
+return {
+width: 22,
+height: 12,
+borderRadius: 999,
+background: active ? color : "#cbd5e1",
+position: "relative",
+display: "inline-block",
+transition: "all .2s ease",
+};
+}
+
+function miniInlineKnob(active) {
+return {
+width: 8,
+height: 8,
+borderRadius: "50%",
+background: "#fff",
+position: "absolute",
+top: 2,
+left: active ? 12 : 2,
+transition: "all .2s ease",
+};
+}
+
+
+function updateInfectionRisk(patient, patch) {
+if (typeof updatePatient !== "function") return;
+
+updatePatient(patient.id, {
+infectionRisk: {
+...(patient?.infectionRisk || {
+isolation: false,
+type: "standard",
+pathogen: "",
+hygieneRisk: false,
+notes: "",
+startAt: "",
+endAt: "",
+}),
+...patch,
+},
+
+discharge: {
+...(patient?.discharge || {
+medicallyReady: false,
+medicallyReadyAt: "",
+
+validated: false,
+validatedAt: "",
+
+plannedAt: "",
+effectiveAt: "",
+
+solution: {
+type: "",
+label: "",
+},
+}),
+},
+});
 }
 
 function toggleVulnerabilityCriterion(patient, criterion) {
@@ -1158,7 +1908,12 @@ closeVulnerabilityModal();
 function openBedEditor(meta) {
 const currentState = bedStates[meta.bedId] || {};
 
-setSelectedBedMeta(meta);
+setSelectedBedMeta({
+...meta,
+currentState,
+mode: "summary",
+});
+
 setBedForm({
 reason: currentState.reason || BED_BLOCK_REASONS.REPAIR,
 startAt: formatDateTimeLocal(
@@ -1167,8 +1922,10 @@ currentState.startAt || new Date().toISOString()
 endAt: formatDateTimeLocal(currentState.endAt || ""),
 note: currentState.note || "",
 });
+
 setBedFormError("");
 }
+
 
 function closeBedEditor() {
 setSelectedBedMeta(null);
@@ -1216,6 +1973,10 @@ status = BED_STATUSES.ISOLATION;
 
 setBedStates((prev) => {
 const current = prev[selectedBedMeta.bedId] || {};
+
+
+
+
 
 return {
 ...prev,
@@ -1274,30 +2035,76 @@ createdAt: new Date().toISOString(),
 closeBedEditor();
 }
 
+
 const filteredPatients = useMemo(() => {
 const base = safeArray(patients).filter((patient) => {
-if (selectedServices.length && !selectedServices.includes(patient?.service)) {
-return false;
+if (
+  selectedServices.length &&
+  !selectedServices.includes(patient?.serviceCode)
+) {
+  return false;
 }
+
+if (activeFilter === "all") return true;
 
 if (activeFilter === "new") {
 return isNewPatient(patient, consultedIds, highlightPatientId);
 }
+
 if (activeFilter === "complex") return isComplexPatient(patient);
 if (activeFilter === "medical") return isMedicalReady(patient);
 if (activeFilter === "avoidable") return getAvoidableDays(patient) > 0;
-if (activeFilter === "recoverable") return isRecoverable(patient);
+if (activeFilter === "recoverable") return isBedRecoverable(patient);
+
+if (activeFilter === "availableNow") {
+return isPatientAvailableWithinHours(patient, 0.25);
+}
+
+if (activeFilter === "available6h") {
+return isPatientAvailableWithinHours(patient, 6);
+}
+
+if (activeFilter === "available24h") {
+return isPatientAvailableWithinHours(patient, 24);
+}
+
+if (activeFilter === "available48h") {
+return isPatientAvailableWithinHours(patient, 48);
+}
+
 if (activeFilter === "dms") return getLengthOfStay(patient) >= 10;
 if (activeFilter === "target") return Boolean(getTargetDate(patient));
 if (activeFilter === "vulnerable") return isVulnerable(patient);
+
 if (activeFilter === "incident") {
 return Boolean(getCurrentIncident(patient, incidents));
 }
+
+if (activeFilter === "isolation") {
+return patient?.infectionRisk?.isolation;
+}
+
+if (activeFilter === "risk") {
+return patient?.infectionRisk?.hygieneRisk;
+}
+
 if (activeFilter === "blockage") {
 return (
 getBlockageLabel(patient) &&
 getBlockageLabel(patient) !== "Non défini"
 );
+
+if (activeFilter === "available2h") {
+  return isPatientAvailableWithinHours(patient, 2);
+}
+
+if (activeFilter === "available4h") {
+  return isPatientAvailableWithinHours(patient, 4);
+}
+
+if (activeFilter === "available12h") {
+  return isPatientAvailableWithinHours(patient, 12);
+}
 }
 
 return true;
@@ -1314,6 +2121,7 @@ if (serviceCompare !== 0) return serviceCompare;
 const scoreDiff =
 getPatientPriorityScore(b, incidents) -
 getPatientPriorityScore(a, incidents);
+
 if (scoreDiff !== 0) return scoreDiff;
 
 return getLengthOfStay(b) - getLengthOfStay(a);
@@ -1327,134 +2135,165 @@ highlightPatientId,
 incidents,
 ]);
 
+const crisisTriggerPatients = useMemo(() => {
+return safeArray(patients).filter(isCrisisTriggerPatient);
+}, [patients]);
+
+const crisisAlertLevel =
+crisisTriggerPatients.length >= 6
+? "red"
+: crisisTriggerPatients.length >= 3
+? "amber"
+: "green";
+console.log("patients total =", patients?.length);
+console.log("selectedServices =", selectedServices);
+console.log("activeFilter =", activeFilter);
+console.log("filteredPatients total =", filteredPatients?.length);
+console.log("1er patient =", patients?.[0]);
+console.log("1er patient filtré =", filteredPatients?.[0]);
+
+
 const dmsMetrics = useMemo(
-() => computeDMSMetrics(filteredPatients),
-[filteredPatients]
+() => computeDMSMetrics(patients),
+[patients]
 );
 
-const totals = {
-capacity: `${filteredPatients.length}/${scopedCapacity}`,
-remainingBeds: getAvailableBeds(scopedCapacity, filteredPatients.length),
-newPatients: filteredPatients.filter((patient) =>
-isNewPatient(patient, consultedIds, highlightPatientId)
-).length,
-complex: filteredPatients.filter(isComplexPatient).length,
-medical: filteredPatients.filter(isMedicalReady).length,
-avoidableDays: filteredPatients.reduce(
-(sum, patient) => sum + getAvoidableDays(patient),
-0
-),
-recoverable: filteredPatients.filter(isRecoverable).length,
-dmsExceeded: filteredPatients.filter(
-(patient) => getLengthOfStay(patient) >= 10
-).length,
-targetDefined: filteredPatients.filter((patient) =>
-Boolean(getTargetDate(patient))
-).length,
-vulnerable: filteredPatients.filter(isVulnerable).length,
-incidents: filteredPatients.filter((patient) =>
-Boolean(getCurrentIncident(patient, incidents))
-).length,
-};
-
-const actionChips = [
-{ key: "complex", label: "Complexes", count: totals.complex, color: "amber" },
-{
-key: "recoverable",
-label: "Récupérables",
-count: totals.recoverable,
-color: "green",
-},
-{
-key: "target",
-label: "Date cible",
-count: totals.targetDefined,
-color: "blue",
-},
-{
-key: "vulnerable",
-label: "Vulnérables",
-count: totals.vulnerable,
-color: "purple",
-},
-{ key: "incident", label: "Incidents", count: totals.incidents, color: "red" },
-];
 
 const directionRows = useMemo(() => {
-const scopedServices = selectedServices.length ? selectedServices : services;
+  const scopedServices = selectedServices.length ? selectedServices : services;
 
-return scopedServices
-.map((service) => {
-const servicePatients = safeArray(patients).filter(
-(patient) => patient?.service === service
-);
+  return scopedServices
+    .map((service) => {
+      const servicePatients = safeArray(patients).filter(
+        (patient) => patient?.service === service
+      );
 
-const capacity = getServiceCapacity(service);
-const occupancy = servicePatients.length;
-const occupancyRate =
-capacity > 0 ? Math.round((occupancy / capacity) * 100) : 0;
-const serviceRisk = getServiceRisk(servicePatients, capacity, incidents);
+      const capacity = getServiceCapacity(service);
+      const occupancy = servicePatients.length;
+      const occupancyRate =
+        capacity > 0 ? Math.round((occupancy / capacity) * 100) : 0;
 
-return {
-service,
-capacity,
-occupancy,
-occupancyLabel: `${occupancy}/${capacity}`,
-availableBeds: getAvailableBeds(capacity, occupancy),
-occupancyRate,
-complex: servicePatients.filter(isComplexPatient).length,
-medical: servicePatients.filter(isMedicalReady).length,
-avoidableDays: servicePatients.reduce(
-(sum, patient) => sum + getAvoidableDays(patient),
-0
-),
-recoverable: servicePatients.filter(isRecoverable).length,
-dmsExceeded: servicePatients.filter(
-(patient) => getLengthOfStay(patient) >= 10
-).length,
-targetDefined: servicePatients.filter((patient) =>
-Boolean(getTargetDate(patient))
-).length,
-vulnerable: servicePatients.filter(isVulnerable).length,
-incidents: servicePatients.filter((patient) =>
-Boolean(getCurrentIncident(patient, incidents))
-).length,
-dominantBlockage: getDominantBlockage(servicePatients),
-risk: serviceRisk,
-};
-})
-.sort((a, b) => {
-const score = (row) =>
-(row.risk.color === "red" ? 100 : 0) +
-(row.risk.color === "amber" ? 50 : 0) +
-row.incidents * 30 +
-row.avoidableDays * 2 +
-row.dmsExceeded * 3 +
-row.complex * 2 +
-row.vulnerable;
+      const availableBeds = getAvailableBeds(capacity, occupancy);
 
-return score(b) - score(a);
-});
+      const complex = servicePatients.filter(isComplexPatient).length;
+      const medical = servicePatients.filter(isMedicalReady).length;
+      const vulnerable = servicePatients.filter(isVulnerable).length;
+
+      const incidentsCount = servicePatients.filter((patient) =>
+        Boolean(getCurrentIncident(patient, incidents))
+      ).length;
+
+      const dmsExceeded = servicePatients.filter(
+        (patient) => getLengthOfStay(patient) >= 10
+      ).length;
+
+      const avoidableDays = servicePatients.reduce(
+        (sum, patient) => sum + getAvoidableDays(patient),
+        0
+      );
+
+      const recoverable = servicePatients.filter(isRecoverable).length;
+
+      const targetDefined = servicePatients.filter((patient) =>
+        Boolean(getTargetDate(patient))
+      ).length;
+
+      const criticalPatients = servicePatients.filter(
+        (patient) => getRiskLevel(patient, incidents).color === "red"
+      ).length;
+
+      const fastExits = servicePatients.filter(
+        (patient) =>
+          isRecoverable(patient) ||
+          (isMedicalReady(patient) && Boolean(getTargetDate(patient)))
+      ).length;
+
+      const dominantBlockage = getDominantBlockage(servicePatients);
+
+      const tensionScore =
+        occupancyRate +
+        incidentsCount * 30 +
+        criticalPatients * 25 +
+        dmsExceeded * 8 +
+        complex * 6 +
+        vulnerable * 3 -
+        availableBeds * 5 -
+        fastExits * 4;
+
+      const risk =
+        incidentsCount > 0 ||
+        occupancyRate >= 100 ||
+        criticalPatients > 0
+          ? { color: "red", label: "Alerte" }
+          : occupancyRate >= 85 || dmsExceeded > 0 || complex >= 3
+          ? { color: "amber", label: "Vigilance" }
+          : { color: "green", label: "Stable" };
+
+      const actionLabel =
+        risk.color === "red"
+          ? "Arbitrage direction"
+          : fastExits > 0
+          ? "Activer sorties"
+          : occupancyRate >= 85
+          ? "Surveiller tension"
+          : "Suivi standard";
+
+      return {
+        service,
+        capacity,
+        occupancy,
+        occupancyLabel: `${occupancy}/${capacity}`,
+        occupancyRate,
+        availableBeds,
+        complex,
+        medical,
+        avoidableDays,
+        recoverable,
+        dmsExceeded,
+        targetDefined,
+        vulnerable,
+        incidents: incidentsCount,
+        criticalPatients,
+        fastExits,
+        dominantBlockage,
+        risk,
+        tensionScore,
+        actionLabel,
+      };
+    })
+    .sort((a, b) => b.tensionScore - a.tensionScore);
 }, [patients, selectedServices, services, incidents]);
+const cleanedExitBedsCount = useMemo(() => {
+return safeArray(bioTasks).filter(
+(task) => task.taskType === "exit" && task.status === "done"
+).length;
+}, [bioTasks]);
 
 const directionSummary = useMemo(() => {
-const redServices = directionRows.filter((row) => row.risk.color === "red").length;
+const redServices = directionRows.filter(
+(row) => row.risk.color === "red"
+).length;
+
 const recoverableBeds = directionRows.reduce(
 (sum, row) => sum + row.recoverable,
 0
 );
+
 const dominant = directionRows
 .map((row) => row.dominantBlockage)
 .filter((item) => item && item !== "Aucun dominant");
 
 const dominantBlock = dominant.length ? dominant[0] : "Aucun dominant";
+
 const criticalPatients = filteredPatients.filter(
 (patient) => getRiskLevel(patient, incidents).color === "red"
 ).length;
+
 const servicesToArbitrate = directionRows.filter(
 (row) => row.risk.color === "red" || row.risk.color === "amber"
 ).length;
-const fastExits = filteredPatients.filter(
+
+const fastExits = safeArray(patients).filter(
 (patient) =>
 isRecoverable(patient) ||
 (isMedicalReady(patient) && getTargetDate(patient))
@@ -1467,26 +2306,38 @@ dominantBlock,
 criticalPatients,
 servicesToArbitrate,
 fastExits,
+cleanedExitBeds: cleanedExitBedsCount,
 };
-}, [directionRows, filteredPatients, incidents]);
+}, [directionRows, filteredPatients, patients, incidents, cleanedExitBedsCount]);
+
+
+
+
 
 const directionPatients = useMemo(() => {
 return filteredPatients
 .filter((p) => {
 if (!isDirectionPriorityPatient(p, incidents)) return false;
+
+const risk = getRiskLevel(p, incidents);
+const hasIncident = Boolean(getCurrentIncident(p, incidents));
+const los = getLengthOfStay(p);
+
+if (activeFilter === "all") return true;
 if (activeFilter === "new") {
 return isNewPatient(p, consultedIds, highlightPatientId);
 }
+
+if (activeFilter === "critical") return risk.color === "red";
 if (activeFilter === "complex") return isComplexPatient(p);
 if (activeFilter === "recoverable") return isRecoverable(p);
 if (activeFilter === "target") return Boolean(getTargetDate(p));
 if (activeFilter === "vulnerable") return isVulnerable(p);
 if (activeFilter === "medical") return isMedicalReady(p);
 if (activeFilter === "avoidable") return getAvoidableDays(p) > 0;
-if (activeFilter === "dms") return getLengthOfStay(p) >= 10;
-if (activeFilter === "incident") {
-return Boolean(getCurrentIncident(p, incidents));
-}
+if (activeFilter === "dms") return los >= 10;
+if (activeFilter === "incident") return hasIncident;
+
 return true;
 })
 .sort(
@@ -1502,6 +2353,39 @@ consultedIds,
 highlightPatientId,
 incidents,
 ]);
+
+
+const patientBedMap = useMemo(() => buildPatientBedMap(patients), [patients]);
+
+// 🔍 DEBUG
+console.log("PATIENT SAMPLE", patients[0]);
+
+console.log("PATIENT BED MAP", patientBedMap);
+
+console.log(
+"HOSPITAL_BEDS MP1",
+HOSPITAL_BEDS.find((s) => s.serviceLabel === "Médecine Polyvalente 1")
+);
+
+
+
+const filteredBedServices = useMemo(() => {
+const scopedServices = selectedServices.length
+? HOSPITAL_BEDS.filter((item) =>
+selectedServices.includes(item.serviceLabel)
+)
+: HOSPITAL_BEDS;
+
+return scopedServices.map((serviceItem) => ({
+...serviceItem,
+metrics: computeBedMetricsForService(
+  serviceItem,
+  bedStates,
+  patientBedMap,
+  settings?.bioCleaning
+),
+}));
+}, [selectedServices, bedStates, patientBedMap, settings?.bioCleaning]);
 
 const groupedPatients = useMemo(() => {
 const groups = filteredPatients.reduce((acc, patient) => {
@@ -1525,58 +2409,213 @@ getPatientPriorityScore(a, incidents)
 
 
 
-const patientBedMap = useMemo(() => buildPatientBedMap(patients), [patients]);
 
-console.log(
-"PATIENTS MP1",
-patients.filter((p) => p.service === "Médecine Polyvalente 1")
+function isPatientAvailableWithinHours(patient, hours) {
+const recovery = buildBedRecovery(patient, {
+bedId: `${patient?.chambre || ""}-${patient?.lit || ""}`,
+});
+
+const availableAt =
+recovery?.recoverableCommittedAt ||
+recovery?.recoverableForecastAt ||
+recovery?.availableAt;
+
+if (!availableAt) return false;
+
+const date = new Date(availableAt);
+if (Number.isNaN(date.getTime())) return false;
+
+const now = new Date();
+const diffHours = (date - now) / (1000 * 60 * 60);
+
+// 🔥 FIX ICI
+return diffHours >= 0 && diffHours <= hours;
+}
+
+
+const bedRecoveries = useMemo(() => {
+return safeArray(patients).map((patient) =>
+buildBedRecovery(patient, {
+bedId: `${patient?.chambre || ""}-${patient?.lit || ""}`,
+})
 );
+}, [patients]);
 
-console.log("PATIENT BED MAP", patientBedMap);
 
-console.log(
-"HOSPITAL_BEDS MP1",
-HOSPITAL_BEDS.find((s) => s.serviceLabel === "Médecine Polyvalente 1")
-);
+const availabilityStats = useMemo(() => {
+return {
+availableNow: bedRecoveries.filter((recovery) =>
+isRecoveryWithinHours(recovery, 0.25)
+).length,
+availableIn6h: bedRecoveries.filter((recovery) =>
+isRecoveryWithinHours(recovery, 6)
+).length,
+availableIn24h: bedRecoveries.filter((recovery) =>
+isRecoveryWithinHours(recovery, 24)
+).length,
+availableIn48h: bedRecoveries.filter((recovery) =>
+isRecoveryWithinHours(recovery, 48)
+).length,
+};
+}, [bedRecoveries]);
 
-const filteredBedServices = useMemo(() => {
-const scopedServices = selectedServices.length
-? HOSPITAL_BEDS.filter((item) =>
-selectedServices.includes(item.serviceLabel)
-)
-: HOSPITAL_BEDS;
-
-return scopedServices.map((serviceItem) => ({
-...serviceItem,
-metrics: computeBedMetricsForService(serviceItem, bedStates, patientBedMap),
-}));
-}, [selectedServices, bedStates, patientBedMap]);
 
 const globalBedMetrics = useMemo(() => {
-return filteredBedServices.reduce(
-(acc, serviceItem) => {
-acc.totalBeds += serviceItem.metrics.totalBeds;
-acc.availableBeds += serviceItem.metrics.availableBeds;
-acc.occupiedBeds += serviceItem.metrics.occupiedBeds;
-acc.blockedBeds += serviceItem.metrics.blockedBeds;
-acc.reservedBeds += serviceItem.metrics.reservedBeds;
-acc.isolationBeds += serviceItem.metrics.isolationBeds;
-acc.recoverable48h += serviceItem.metrics.recoverable48h;
-acc.forecastBlockages48h += serviceItem.metrics.forecastBlockages48h;
-return acc;
+  return filteredBedServices.reduce(
+    (acc, serviceItem) => {
+      acc.totalBeds += serviceItem.metrics.totalBeds;
+      acc.availableBeds += serviceItem.metrics.availableBeds;
+      acc.occupiedBeds += serviceItem.metrics.occupiedBeds;
+      acc.blockedBeds += serviceItem.metrics.blockedBeds;
+      acc.reservedBeds += serviceItem.metrics.reservedBeds;
+      acc.isolationBeds += serviceItem.metrics.isolationBeds;
+
+      acc.recoverable2h += serviceItem.metrics.recoverable2h || 0;
+      acc.recoverable4h += serviceItem.metrics.recoverable4h || 0;
+      acc.recoverable6h += serviceItem.metrics.recoverable6h || 0;
+      acc.recoverable12h += serviceItem.metrics.recoverable12h || 0;
+      acc.recoverable24h += serviceItem.metrics.recoverable24h || 0;
+      acc.recoverable48h += serviceItem.metrics.recoverable48h || 0;
+
+      acc.forecastBlockages48h += serviceItem.metrics.forecastBlockages48h || 0;
+acc.bioCleaningLoad += serviceItem.metrics.bioCleaningLoad || 0;
+      return acc;
+    },
+    {
+      totalBeds: 0,
+      availableBeds: 0,
+      occupiedBeds: 0,
+      blockedBeds: 0,
+      bioCleaningLoad: 0,
+      reservedBeds: 0,
+      isolationBeds: 0,
+
+      recoverable2h: 0,
+      recoverable4h: 0,
+      recoverable6h: 0,
+      recoverable12h: 0,
+      recoverable24h: 0,
+      recoverable48h: 0,
+
+      forecastBlockages48h: 0,
+    }
+  );
+}, [filteredBedServices]);
+
+const totals = {
+capacity: `${filteredPatients.length}/${scopedCapacity}`,
+remainingBeds: getAvailableBeds(scopedCapacity, filteredPatients.length),
+newPatients: filteredPatients.filter((patient) =>
+isNewPatient(patient, consultedIds, highlightPatientId)
+).length,
+complex: filteredPatients.filter(isComplexPatient).length,
+medical: filteredPatients.filter(isMedicalReady).length,
+avoidableDays: filteredPatients.reduce(
+(sum, patient) => sum + getAvoidableDays(patient),
+0
+),
+recoverable: filteredBedServices.reduce(
+(sum, serviceItem) => sum + (serviceItem.metrics?.recoverable48h || 0),
+0
+),
+dmsExceeded: filteredPatients.filter(
+(patient) => getLengthOfStay(patient) >= 10
+).length,
+targetDefined: filteredPatients.filter((patient) =>
+Boolean(getTargetDate(patient))
+).length,
+vulnerable: filteredPatients.filter(isVulnerable).length,
+incidents: filteredPatients.filter((patient) =>
+Boolean(getCurrentIncident(patient, incidents))
+).length,
+availableNow: safeArray(filteredPatients).filter((patient) =>
+isPatientAvailableWithinHours(patient, 0.25)
+).length,
+
+available6h: safeArray(filteredPatients).filter((patient) =>
+isPatientAvailableWithinHours(patient, 6)
+).length,
+
+available24h: safeArray(filteredPatients).filter((patient) =>
+isPatientAvailableWithinHours(patient, 24)
+).length,
+
+available48h: safeArray(filteredPatients).filter((patient) =>
+isPatientAvailableWithinHours(patient, 48)
+).length,
+
+
+available2h: safeArray(filteredPatients).filter((patient) =>
+  isPatientAvailableWithinHours(patient, 2)
+).length,
+
+available4h: safeArray(filteredPatients).filter((patient) =>
+  isPatientAvailableWithinHours(patient, 4)
+).length,
+
+available12h: safeArray(filteredPatients).filter((patient) =>
+  isPatientAvailableWithinHours(patient, 12)
+).length,
+};
+
+const actionChips = [
+{ key: "complex", label: "Complexes", count: totals.complex, color: "amber" },
+{
+key: "availableNow",
+label: " Lits dispo immédiat",
+count: totals.availableNow,
+color: "green",
 },
 {
-totalBeds: 0,
-availableBeds: 0,
-occupiedBeds: 0,
-blockedBeds: 0,
-reservedBeds: 0,
-isolationBeds: 0,
-recoverable48h: 0,
-forecastBlockages48h: 0,
-}
-);
-}, [filteredBedServices]);
+key: "available6h",
+label: "Lits dispo < 6h",
+count: totals.available6h,
+color: "amber",
+},
+{
+key: "available24h",
+label: "Lits dispo < 24h",
+count: totals.available24h,
+color: "blue",
+},
+{
+key: "available48h",
+label: "Lits récupérables < 48h",
+count: totals.available48h,
+color: "purple",
+},
+{
+key: "target",
+label: "Date cible",
+count: totals.targetDefined,
+color: "blue",
+},
+{
+key: "vulnerable",
+label: "Vulnérables",
+count: totals.vulnerable,
+color: "purple",
+},
+{ key: "incident", label: "Incidents", count: totals.incidents, color: "red" },
+{
+  key: "available2h",
+  label: "Lits récupérables < 2h",
+  count: totals.available2h,
+  color: "red",
+},
+{
+  key: "available4h",
+  label: "Lits récupérables < 4h",
+  count: totals.available4h,
+  color: "amber",
+},
+{
+  key: "available12h",
+  label: "Lits récupérables < 12h",
+  count: totals.available12h,
+  color: "blue",
+},
+];
 
 const kpis =
 mode === "direction"
@@ -1598,9 +2637,9 @@ kind: "action",
 },
 {
 key: "avoidable",
-label: "Jours évitables",
+label: "Sortants médicaux",
 value: `${totals.avoidableDays} j`,
-detail: "levier capacitaire",
+detail: "depuis validation médicale",
 strong: true,
 kind: "critical",
 },
@@ -1654,7 +2693,50 @@ width: "100%",
 minWidth: 0,
 };
 
+const totalLoad = safeArray(patients).reduce(
+(sum, p) => sum + getCleaningLoad(p),
+0
+);
+
+const bedRecoveryPreview = safeArray(patients).map((patient) =>
+buildBedRecovery(patient, {
+bedId: `${patient?.chambre || ""}-${patient?.lit || ""}`,
+})
+);
+
+
+// 🔒 ACCÈS EXCLUSIF AGENT BIO
+if (user?.role === "BIO_AGENT") {
+
+const cleanedExitBedsCount = useMemo(() => {
+return safeArray(bioTasks).filter(
+(task) => task.taskType === "exit" && task.status === "done"
+).length;
+}, [bioTasks]);
+
+
 return (
+<AppShell
+header={
+<AppHeader
+subtitle="Ma tournée bio-nettoyage"
+onLogout={onLogout}
+user={user}
+/>
+}
+>
+<BioCleaningAgentView
+user={user}
+patients={patients}
+bioCleaningSettings={settings?.bioCleaning}
+/>
+</AppShell>
+);
+}
+
+return (
+
+
 <AppShell
 header={
 <AppHeader
@@ -1676,14 +2758,7 @@ gap: 16,
 >
 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
 
-  {/* 👉 BOUTON RESET */}
-  <button
-    type="button"
-    className="app-btn app-btn-ghost"
-    onClick={handleResetPatients}
-  >
-    Reset patients
-  </button>
+
 
   {user?.role === "DIRECTION" && (
     <button
@@ -1711,11 +2786,77 @@ gap: 16,
 <AdminUsers />
 ) : (
 <>
+
+{crisisTriggerPatients.length > 0 ? (
+<section
+className="app-card"
+style={{
+border:
+crisisAlertLevel === "red"
+? "2px solid #fecaca"
+: "2px solid #fed7aa",
+background:
+crisisAlertLevel === "red" ? "#fef2f2" : "#fff7ed",
+padding: 16,
+borderRadius: 18,
+display: "flex",
+justifyContent: "space-between",
+alignItems: "center",
+gap: 12,
+flexWrap: "wrap",
+}}
+>
+<div style={{ display: "grid", gap: 4 }}>
+<strong
+style={{
+color: crisisAlertLevel === "red" ? "#991b1b" : "#9a3412",
+fontSize: 16,
+}}
+>
+{crisisAlertLevel === "red"
+? "Cellule de crise recommandée"
+: "Pré-alerte capacitaire"}
+</strong>
+
+<span style={{ fontSize: 13, color: "#475569" }}>
+{crisisTriggerPatients.length} patient(s) avec blocage, sans solution et DMS ≥ J+7.
+</span>
+</div>
+
+<button
+type="button"
+className="app-btn app-btn-primary"
+onClick={() => {
+localStorage.setItem(
+"carabbas_crise_prefill_patient_ids",
+JSON.stringify(crisisTriggerPatients.map((p) => p.id))
+);
+
+navigate("/crise");
+}}
+>
+Préparer cellule de crise
+</button>
+</section>
+) : null}
+
 <section className="app-card" style={headerCard}>
-<div style={toolbarGrid}>
+
+<div style={{ display: "grid", gap: 12 }}>
 <div style={{ display: "grid", gap: 6, width: "100%", minWidth: 0 }}>
 <span style={sectionEyebrow}>Vue</span>
-<div style={{ display: "flex", gap: 6 }}>
+
+<div
+className="view-header"
+style={{
+display: "flex",
+justifyContent: "space-between",
+alignItems: "center",
+gap: 12,
+width: "100%",
+}}
+>
+<div className="view-tabs">
 <button
 type="button"
 className={`app-chip ${mode === "service" ? "blue" : ""}`}
@@ -1723,6 +2864,7 @@ onClick={() => setMode("service")}
 >
 Service
 </button>
+
 <button
 type="button"
 className={`app-chip ${mode === "direction" ? "blue" : ""}`}
@@ -1730,6 +2872,7 @@ onClick={() => setMode("direction")}
 >
 Direction
 </button>
+
 <button
 type="button"
 className={`app-chip ${mode === "beds" ? "blue" : ""}`}
@@ -1737,11 +2880,49 @@ onClick={() => setMode("beds")}
 >
 Gestion des lits
 </button>
+
+<button
+type="button"
+className={`app-chip ${mode === "bio" ? "blue" : ""}`}
+onClick={() => setMode("bio")}
+>
+Cadre bio
+</button>
+<button
+  type="button"
+  className={`app-chip ${mode === "bio-agent-demo" ? "blue" : ""}`}
+  onClick={() => setMode("bio-agent-demo")}
+>
+  Vue agent bio
+</button>
+<button
+type="button"
+className={`app-chip ${mode === "settings" ? "blue" : ""}`}
+onClick={() => setMode("settings")}
+>
+Paramétrage
+</button>
+</div>
+
+<button
+  type="button"
+  className="app-chip"
+  style={{ marginLeft: "auto" }}
+  onClick={handleResetPatients}
+>
+  Réinitialisation patients
+</button>
+
 </div>
 </div>
 
-<div style={{ display: "flex", gap: 6, flexWrap: "wrap", width: "100%", minWidth: 0 }}>
+
+
+
+{mode !== "settings" && mode !== "bio" && (
+<div style={{ display: "grid", gap: 6 }}>
 <span style={sectionEyebrow}>Services</span>
+
 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
 <button
 type="button"
@@ -1752,23 +2933,26 @@ onClick={resetServices}
 >
 Tous
 </button>
-{services.map((service) => (
-<button
-key={service}
-type="button"
-className={`app-chip ${
-selectedServices.includes(service) ? "blue" : ""
-}`}
-onClick={() => toggleService(service)}
->
-{service}
-</button>
+
+{HOSPITAL_SERVICES.map((service) => (
+  <button
+    key={service.code}
+    type="button"
+    className={`app-chip ${
+      selectedServices.includes(service.code) ? "blue" : ""
+    }`}
+    onClick={() => toggleService(service.code)}
+  >
+    {service.label}
+  </button>
 ))}
 </div>
 </div>
+)}
+
 </div>
 
-{mode === "direction" ? (
+{mode === "direction" && (
 <>
 <div style={summaryStrip}>
 <span
@@ -1778,9 +2962,15 @@ directionSummary.redServices > 0 ? "red" : "green"
 >
 {directionSummary.redServices} service(s) en alerte forte
 </span>
+
 <span style={statusBadgeStyle("blue")}>
-{directionSummary.recoverableBeds} lit(s) récupérable(s)
+{directionSummary.recoverableBeds} lits théoriquement récupérables
 </span>
+
+<span style={statusBadgeStyle("green")}>
+{directionSummary.cleanedExitBeds} lit(s) prêt(s) après bio-nettoyage
+</span>
+
 <span style={statusBadgeStyle("amber")}>
 Blocage dominant : {directionSummary.dominantBlock}
 </span>
@@ -1792,17 +2982,17 @@ style={statusBadgeStyle(
 directionSummary.criticalPatients > 0 ? "red" : "green"
 )}
 >
-{directionSummary.criticalPatients} patient(s) critiques
+{directionSummary.criticalPatients} patient(s) critique(s)
 </span>
+
 <span
 style={statusBadgeStyle(
-directionSummary.servicesToArbitrate > 0
-? "amber"
-: "green"
+directionSummary.servicesToArbitrate > 0 ? "amber" : "green"
 )}
 >
 {directionSummary.servicesToArbitrate} service(s) à arbitrer
 </span>
+
 <span
 style={statusBadgeStyle(
 directionSummary.fastExits > 0 ? "green" : "neutral"
@@ -1812,9 +3002,58 @@ directionSummary.fastExits > 0 ? "green" : "neutral"
 </span>
 </div>
 </>
-) : null}
+)}
 
-{mode !== "beds" ? (
+
+
+{mode === "settings" && (
+<SettingsPage
+value={settings}
+onChange={setSettings}
+services={services}
+/>
+)}
+
+
+{mode === "bio" &&
+  (user?.role === "BIO_AGENT" || bioDemoAgentView ? (
+    <BioCleaningAgentView
+      user={demoBioAgentUser || user}
+      tasks={bioTasks} // 🔥 IMPORTANT : PAS de filter ici
+      agents={bioAgents}
+      onUpdateTask={handleUpdateBioTask}
+    />
+  ) : (
+    <BioCleaningManagerView
+      patients={patients}
+      services={services}
+      bioCleaningSettings={settings?.bioCleaning}
+      agents={bioAgents}
+      setAgents={setBioAgents}
+      tasks={bioTasks}
+      setTasks={setBioTasks}
+    />
+  ))}
+{mode === "bio-agent-demo" && (
+  <BioCleaningAgentView
+    user={demoBioAgentUser}
+    tasks={bioTasks.filter(
+      (task) => task.assignedAgentId === demoBioAgentUser.id
+    )}
+    agents={bioAgents}
+    onUpdateTask={(taskId, patch) =>
+      setBioTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId ? { ...task, ...patch } : task
+        )
+      )
+    }
+  />
+)}
+
+
+
+{mode === "service" || mode === "direction" ? (
 <>
 <div
 style={{
@@ -1865,6 +3104,8 @@ textOverflow: "ellipsis",
 );
 })}
 </div>
+
+
 
 <div style={chipsRow}>
 {actionChips.map((chip) => (
@@ -1936,6 +3177,24 @@ onClick={() => setActiveFilter("incident")}
 >
 Incidents
 </button>
+
+<button
+type="button"
+className={`app-chip ${activeFilter === "isolation" ? "blue" : ""}`}
+onClick={() => setActiveFilter("isolation")}
+>
+Isol
+</button>
+
+<button
+type="button"
+className={`app-chip ${activeFilter === "risk" ? "blue" : ""}`}
+onClick={() => setActiveFilter("risk")}
+>
+R.Inf
+</button>
+
+
 </div>
 </>
 ) : null}
@@ -1953,121 +3212,137 @@ gap: 12,
 flexWrap: "wrap",
 }}
 >
+<div style={{ display: "grid", gap: 4 }}>
 <strong style={{ color: "#17376a", fontSize: 18 }}>
 Pilotage direction par service
 </strong>
 <span style={{ fontSize: 12, color: "#64748b" }}>
-tension · sort med · jours évitables · récupérables · DMS ·
-blocage dominant
+tension capacitaire · patients critiques · sorties activables · blocages
+</span>
+</div>
+</div>
+
+<div style={{ display: "grid", gap: 12 }}>
+{directionRows.map((row) => (
+<div
+key={row.service}
+style={{
+...directionRowCard,
+border:
+row.risk.color === "red"
+? "1px solid #f1b3aa"
+: row.risk.color === "amber"
+? "1px solid #f3d089"
+: "1px solid #d9efe0",
+background:
+row.risk.color === "red"
+? "#fff8f7"
+: row.risk.color === "amber"
+? "#fffdf8"
+: "#fbfffc",
+}}
+>
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "minmax(220px, 1.4fr) auto",
+gap: 12,
+alignItems: "start",
+}}
+>
+<div style={{ display: "grid", gap: 6 }}>
+<span style={directionMetricLabel}>Service</span>
+
+<div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+<strong style={{ fontSize: 17, color: "#17376a" }}>
+{row.service}
+</strong>
+
+<span style={statusBadgeStyle(row.risk.color)}>
+{row.risk.label}
+</span>
+
+<span style={statusBadgeStyle(row.risk.color === "red" ? "red" : "blue")}>
+{row.actionLabel || "Suivi standard"}
 </span>
 </div>
 
+<div style={{ fontSize: 12, color: "#64748b" }}>
+Blocage dominant : <strong>{row.dominantBlockage}</strong>
+</div>
+</div>
 
-<div style={{ display: "grid", gap: 12 }}>
-  {directionRows.map((row) => (
-    
-    <div style={{ display: "grid", gap: 12 }}>
-  {directionRows.map((row) => (
-    <div key={row.service} style={directionRowCard}>
-      
-      {/* HEADER */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1.4fr auto",
-          gap: 12,
-          alignItems: "start",
-        }}
-      >
-        <div style={{ display: "grid", gap: 4 }}>
-          <span style={directionMetricLabel}>Service</span>
-          <strong style={{ fontSize: 16, color: "#17376a" }}>
-            {row.service}
-          </strong>
-          <span style={statusBadgeStyle(row.risk.color)}>
-            {row.risk.label}
-          </span>
-        </div>
+<div style={{ textAlign: "right", display: "grid", gap: 2 }}>
+<span style={directionMetricLabel}>Occupation</span>
+<div style={{ fontSize: 22, fontWeight: 900, color: "#17376a" }}>
+{row.occupancyLabel}
+</div>
+<div style={{ fontSize: 12, color: "#64748b" }}>
+{row.occupancyRate}% · {row.availableBeds} lit(s) dispo
+</div>
+</div>
+</div>
 
-        <div style={{ textAlign: "right", display: "grid", gap: 2 }}>
-          <span style={directionMetricLabel}>Occupation</span>
-          <div style={{ fontSize: 20, fontWeight: 900 }}>
-            {row.occupancyLabel}
-          </div>
-          <div style={{ fontSize: 12, color: "#64748b" }}>
-            {row.occupancyRate}%
-          </div>
-        </div>
-      </div>
-
-      {/* METRICS */}
-      <div
-  style={{
-    display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: 12,
-  }}
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+gap: 10,
+}}
 >
-  <div style={{ display: "grid", gap: 2 }}>
-    <span style={directionMetricLabel}>Lits dispo</span>
-    <strong style={{ fontSize: 16 }}>{row.availableBeds}</strong>
-  </div>
-
-  <div style={{ display: "grid", gap: 2 }}>
-    <span style={directionMetricLabel}>Complexes</span>
-    <strong style={{ fontSize: 16 }}>{row.complex}</strong>
-  </div>
-
-  <div style={{ display: "grid", gap: 2 }}>
-    <span style={directionMetricLabel}>Sort Med</span>
-    <strong style={{ fontSize: 16 }}>{row.medical}</strong>
-  </div>
-
-  <div style={{ display: "grid", gap: 2 }}>
-    <span style={directionMetricLabel}>Jours évitables</span>
-    <strong style={{ fontSize: 16 }}>{row.avoidableDays}</strong>
-  </div>
-
-  <div style={{ display: "grid", gap: 2 }}>
-    <span style={directionMetricLabel}>Récupérables</span>
-    <strong style={{ fontSize: 16 }}>{row.recoverable}</strong>
-  </div>
-
-  <div style={{ display: "grid", gap: 2 }}>
-    <span style={directionMetricLabel}>DMS ≥ J+10</span>
-    <strong style={{ fontSize: 16 }}>{row.dmsExceeded}</strong>
-  </div>
-
-  <div style={{ display: "grid", gap: 2 }}>
-    <span style={directionMetricLabel}>Date cible</span>
-    <strong style={{ fontSize: 16 }}>{row.targetDefined}</strong>
-  </div>
-
-  <div style={{ display: "grid", gap: 2 }}>
-    <span style={directionMetricLabel}>Vulnérables</span>
-    <strong style={{ fontSize: 16 }}>{row.vulnerable}</strong>
-  </div>
+<div style={directionMetric}>
+<span style={directionMetricLabel}>Critiques</span>
+<strong style={{ fontSize: 18, color: row.criticalPatients > 0 ? "#b42318" : "#17376a" }}>
+{row.criticalPatients || 0}
+</strong>
 </div>
 
-      {/* FOOTER */}
-      <div
-  style={{
-    borderTop: "1px solid #eef2f7",
-    paddingTop: 8,
-    display: "grid",
-    gap: 2,
-  }}
->
-  <span style={directionMetricLabel}>Blocage dominant</span>
-  <strong style={{ fontSize: 16 }}>{row.dominantBlockage}</strong>
+<div style={directionMetric}>
+<span style={directionMetricLabel}>Sort Med</span>
+<strong style={{ fontSize: 18 }}>{row.medical}</strong>
 </div>
 
-    </div>
-  ))}
+<div style={directionMetric}>
+<span style={directionMetricLabel}>Sorties activables</span>
+<strong style={{ fontSize: 18, color: row.fastExits > 0 ? "#166534" : "#17376a" }}>
+{row.fastExits || 0}
+</strong>
 </div>
-  ))}
+
+<div style={directionMetric}>
+<span style={directionMetricLabel}>Récupérables</span>
+<strong style={{ fontSize: 18 }}>{row.recoverable}</strong>
 </div>
-   
+
+<div style={directionMetric}>
+<span style={directionMetricLabel}>DMS ≥ J+10</span>
+<strong style={{ fontSize: 18, color: row.dmsExceeded > 0 ? "#a16207" : "#17376a" }}>
+{row.dmsExceeded}
+</strong>
+</div>
+
+<div style={directionMetric}>
+<span style={directionMetricLabel}>Jours évitables</span>
+<strong style={{ fontSize: 18, color: row.avoidableDays > 0 ? "#b42318" : "#17376a" }}>
+{row.avoidableDays}
+</strong>
+</div>
+
+<div style={directionMetric}>
+<span style={directionMetricLabel}>Vulnérables</span>
+<strong style={{ fontSize: 18 }}>{row.vulnerable}</strong>
+</div>
+
+<div style={directionMetric}>
+<span style={directionMetricLabel}>Incidents</span>
+<strong style={{ fontSize: 18, color: row.incidents > 0 ? "#b42318" : "#17376a" }}>
+{row.incidents}
+</strong>
+</div>
+</div>
+</div>
+))}
+</div>
 </section>
 
 <section className="app-card" style={directionCard}>
@@ -2080,15 +3355,96 @@ gap: 12,
 flexWrap: "wrap",
 }}
 >
+<div style={{ display: "grid", gap: 4 }}>
 <strong style={{ color: "#17376a", fontSize: 18 }}>
 Patients à arbitrer
 </strong>
 <span style={{ fontSize: 12, color: "#64748b" }}>
-complexes · sort med sans solution · DMS élevée · vulnérables
+patients critiques · DMS longue · sort med sans solution · vulnérabilité · incident
 </span>
 </div>
+</div>
 
-<div style={{ display: "grid", gap: 8 }}>
+<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+<button
+type="button"
+style={{
+...statusBadgeStyle(activeFilter === "all" ? "blue" : "neutral"),
+cursor: "pointer",
+}}
+onClick={() => setActiveFilter("all")}
+>
+Tous
+</button>
+
+<button
+type="button"
+style={{
+...statusBadgeStyle(activeFilter === "critical" ? "red" : "neutral"),
+cursor: "pointer",
+}}
+onClick={() => setActiveFilter("critical")}
+>
+Critiques
+</button>
+
+<button
+type="button"
+style={{
+...statusBadgeStyle(activeFilter === "medical" ? "blue" : "neutral"),
+cursor: "pointer",
+}}
+onClick={() => setActiveFilter("medical")}
+>
+Sort Med
+</button>
+
+<button
+type="button"
+style={{
+...statusBadgeStyle(activeFilter === "dms" ? "amber" : "neutral"),
+cursor: "pointer",
+}}
+onClick={() => setActiveFilter("dms")}
+>
+DMS longue
+</button>
+
+<button
+type="button"
+style={{
+...statusBadgeStyle(activeFilter === "vulnerable" ? "purple" : "neutral"),
+cursor: "pointer",
+}}
+onClick={() => setActiveFilter("vulnerable")}
+>
+Vulnérables
+</button>
+
+<button
+type="button"
+style={{
+...statusBadgeStyle(activeFilter === "incident" ? "red" : "neutral"),
+cursor: "pointer",
+}}
+onClick={() => setActiveFilter("incident")}
+>
+Incidents
+</button>
+
+<button
+type="button"
+style={{
+...statusBadgeStyle(activeFilter === "avoidable" ? "amber" : "neutral"),
+cursor: "pointer",
+}}
+onClick={() => setActiveFilter("avoidable")}
+>
+Jours évitables
+</button>
+</div>
+
+<div style={{ display: "grid", gap: 10 }}>
 {directionPatients.length === 0 ? (
 <div style={{ fontSize: 12, color: "#64748b" }}>
 Aucun patient prioritaire dans ce périmètre.
@@ -2101,15 +3457,11 @@ const targetDate = getTargetDate(patient);
 const targetStatus = getDateStatus(targetDate);
 const los = getLengthOfStay(patient);
 const currentIncident = getCurrentIncident(patient, incidents);
-const previousIncident = hasPreviousEscapeIncident(
-patient,
-incidents
-);
-const newPatient = isNewPatient(
-patient,
-consultedIds,
-highlightPatientId
-);
+const previousIncident = hasPreviousEscapeIncident(patient, incidents);
+const newPatient = isNewPatient(patient, consultedIds, highlightPatientId);
+const cleaningType = getCleaningType(patient);
+const riskLevel = getRiskLevel(patient, incidents);
+
 
 return (
 <article
@@ -2117,6 +3469,10 @@ key={`dir-${patient.id}`}
 style={{
 ...directionPatientRow,
 ...getPatientCardTone(patient, incidents),
+border:
+riskLevel.color === "red"
+? "2px solid #f1b3aa"
+: "1px solid #e5ebf4",
 ...(newPatient
 ? {
 boxShadow:
@@ -2138,18 +3494,16 @@ alignItems: "center",
 {patient.nom} {patient.prenom}
 </strong>
 
-<span
-style={statusBadgeStyle(
-getComplexityBadgeColor(patient)
-)}
->
+<span style={statusBadgeStyle(riskLevel.color)}>
+{riskLevel.label}
+</span>
+
+<span style={statusBadgeStyle(getComplexityBadgeColor(patient))}>
 {getComplexityLabel(patient)}
 </span>
 
 {medicallyReady ? (
-<span style={statusBadgeStyle("blue")}>
-Sort Med
-</span>
+<span style={statusBadgeStyle("blue")}>Sort Med</span>
 ) : null}
 
 {vulnerable ? (
@@ -2159,36 +3513,43 @@ Vulnérable ({vulnerabilityCount(patient)})
 ) : null}
 
 {currentIncident ? (
-<span style={statusBadgeStyle("red")}>
-Incident actif
-</span>
+<span style={statusBadgeStyle("red")}>Incident actif</span>
 ) : null}
 
 {!currentIncident && previousIncident ? (
-<span style={statusBadgeStyle("amber")}>
-Antécédent fugue
-</span>
+<span style={statusBadgeStyle("amber")}>Antécédent fugue</span>
 ) : null}
 
 {los >= 10 ? (
-<span style={statusBadgeStyle("amber")}>
-DMS longue
-</span>
+<span style={statusBadgeStyle("amber")}>DMS longue</span>
 ) : null}
+
+<span
+style={statusBadgeStyle(
+cleaningType === "ISO AIR" ||
+cleaningType === "ISO CONTACT" ||
+cleaningType === "ISO GOUT" ||
+cleaningType === "IS"
+? "red"
+: cleaningType === "RENFORCÉ"
+? "amber"
+: "neutral"
+)}
+>
+{cleaningType === "IS" ? "Précautions hygiène" : cleaningType}
+</span>
 </div>
 
 <div style={{ fontSize: 12, color: "#475569" }}>
-{patient.dateNaissance || "—"} · {patient.age || "—"} ans
-· {patient.sexe || "—"} · INS {patient.ins || "—"} · IEP{" "}
+{patient.dateNaissance || "—"} · {patient.age || "—"} ans ·{" "}
+{patient.sexe || "—"} · INS {patient.ins || "—"} · IEP{" "}
 {patient.iep || "—"}
 </div>
 
 <div style={{ fontSize: 12, color: "#475569" }}>
 Entrée le{" "}
-{formatShortDate(
-patient.dateEntree || patient.admissionDate
-)}{" "}
-· {patient.service || "—"} · Chambre {patient.chambre || "—"} · Lit{" "}
+{formatShortDate(patient.dateEntree || patient.admissionDate)} ·{" "}
+{patient.service || "—"} · Chambre {patient.chambre || "—"} · Lit{" "}
 {patient.lit || "—"}
 </div>
 </div>
@@ -2197,13 +3558,15 @@ patient.dateEntree || patient.admissionDate
 <div style={{ fontSize: 12, color: "#334155" }}>
 <strong>Sujet :</strong> {getPatientSubject(patient)}
 </div>
+
 <div style={{ fontSize: 12, color: "#334155" }}>
 <strong>Blocage :</strong> {getBlockageLabel(patient)}
 </div>
+
 <div style={{ fontSize: 12, color: "#334155" }}>
-<strong>Complexité :</strong> {getComplexityLabel(patient)} ·
-score {getComplexityScore(patient)}
+<strong>Solution :</strong> {getSolutionLabel(patient)}
 </div>
+
 {currentIncident ? (
 <div style={{ fontSize: 12, color: "#334155" }}>
 <strong>Workflow :</strong>{" "}
@@ -2214,21 +3577,38 @@ score {getComplexityScore(patient)}
 
 <div
 style={{
-display: "flex",
-gap: 8,
-flexWrap: "wrap",
-alignItems: "center",
+display: "grid",
+gap: 6,
+alignContent: "center",
 }}
 >
-<span
-style={{
-fontWeight: 900,
-fontSize: 18,
-color: getDMSColor(los),
-}}
->
-J+{los}
-</span>
+<div>
+  <span
+    style={{
+      fontWeight: 900,
+      fontSize: 22,
+      color: getDMSColor(los),
+    }}
+  >
+    J+{los}
+  </span>
+
+  {(patient?.medicalReady ||
+    patient?.sortantMedical ||
+    patient?.medicalReadiness?.isMedicallyReady) && (
+    <div
+      style={{
+        fontWeight: 800,
+        fontSize: 13,
+        color: "#b91c1c",
+        marginTop: 4,
+      }}
+    >
+      {getAvoidableDays(patient)} j évitable
+    </div>
+  )}
+</div>
+
 <span style={statusBadgeStyle(targetStatus.color)}>
 Date cible{" "}
 {targetDate ? formatShortDate(targetDate) : "non définie"} ·{" "}
@@ -2239,20 +3619,22 @@ Date cible{" "}
 <div style={compactActionRow}>
 <button
 type="button"
-className="app-btn app-btn-ghost"
-style={compactGhostButton}
-onClick={() => openPatient(patient.id, "patient")}
->
-Patient
-</button>
-<button
-type="button"
 className="app-btn app-btn-primary"
 style={compactPrimaryButton}
 onClick={() => openPatient(patient.id, "copilote")}
 >
 Copilote
 </button>
+
+<button
+type="button"
+className="app-btn app-btn-ghost"
+style={compactGhostButton}
+onClick={() => openPatient(patient.id, "patient")}
+>
+Patient
+</button>
+
 <button
 type="button"
 className="app-btn app-btn-ghost"
@@ -2261,6 +3643,7 @@ onClick={() => openPatient(patient.id, "staff")}
 >
 Staff
 </button>
+
 <button
 type="button"
 className="app-btn app-btn-ghost"
@@ -2269,6 +3652,69 @@ onClick={() => triggerIncident(patient)}
 >
 {currentIncident ? "Voir incident" : "Disparition"}
 </button>
+
+<div
+style={{
+display: "flex",
+gap: 12,
+alignItems: "center",
+padding: "6px 10px",
+border: "1px solid #e2e8f0",
+borderRadius: 12,
+background: "#f8fafc",
+}}
+>
+<button
+type="button"
+onClick={() =>
+updateInfectionRisk(patient, {
+isolation: !(patient?.infectionRisk?.isolation || false),
+type: patient?.infectionRisk?.type || "standard",
+startAt: !(patient?.infectionRisk?.isolation || false)
+? new Date().toISOString()
+: "",
+endAt: !(patient?.infectionRisk?.isolation || false)
+? ""
+: new Date().toISOString(),
+})
+}
+style={miniStatusButton(patient?.infectionRisk?.isolation)}
+>
+<span>PRECO</span>
+<span
+style={miniInlineSwitch(
+patient?.infectionRisk?.isolation,
+"#ef4444"
+)}
+>
+<span
+style={miniInlineKnob(patient?.infectionRisk?.isolation)}
+/>
+</span>
+</button>
+
+<button
+type="button"
+onClick={() =>
+updateInfectionRisk(patient, {
+hygieneRisk: !(patient?.infectionRisk?.hygieneRisk || false),
+})
+}
+style={miniStatusButton(patient?.infectionRisk?.hygieneRisk)}
+>
+<span>RI</span>
+<span
+style={miniInlineSwitch(
+patient?.infectionRisk?.hygieneRisk,
+"#f59e0b"
+)}
+>
+<span
+style={miniInlineKnob(patient?.infectionRisk?.hygieneRisk)}
+/>
+</span>
+</button>
+</div>
 </div>
 </article>
 );
@@ -2276,8 +3722,10 @@ onClick={() => triggerIncident(patient)}
 )}
 </div>
 </section>
+
 </>
 ) : null}
+
 
 {mode === "beds" ? (
 <>
@@ -2290,10 +3738,10 @@ gap: 10,
 }}
 >
 <div style={kpiCard(false, true, "info")}>
-<span style={kpiEyebrow}>Lits totaux</span>
-<strong style={{ fontSize: 28, color: "#17376a" }}>
-{globalBedMetrics.totalBeds}
-</strong>
+  <span style={kpiEyebrow}>Lits totaux</span>
+  <strong style={{ fontSize: 28, color: "#17376a" }}>
+    {globalBedMetrics.totalBeds}
+  </strong>
 </div>
 
 <div style={kpiCard(false, true, "watch")}>
@@ -2317,10 +3765,48 @@ gap: 10,
 </strong>
 </div>
 
+<div style={kpiCard(false, true, "critical")}>
+  <span style={kpiEyebrow}>Récupérables &lt; 2h</span>
+  <strong style={{ fontSize: 28, color: "#b42318" }}>
+    {globalBedMetrics.recoverable2h || 0}
+  </strong>
+</div>
+
 <div style={kpiCard(false, true, "action")}>
-<span style={kpiEyebrow}>Récupérables &lt; 48h</span>
+  <span style={kpiEyebrow}>Récupérables &lt; 4h</span>
+  <strong style={{ fontSize: 28, color: "#a16207" }}>
+    {globalBedMetrics.recoverable4h || 0}
+  </strong>
+</div>
+
+<div style={kpiCard(false, true, "action")}>
+  <span style={kpiEyebrow}>Récupérables &lt; 6h</span>
+  <strong style={{ fontSize: 28, color: "#a16207" }}>
+    {globalBedMetrics.recoverable6h || 0}
+  </strong>
+</div>
+
+<div style={kpiCard(false, true, "info")}>
+  <span style={kpiEyebrow}>Récupérables &lt; 12h</span>
+  <strong style={{ fontSize: 28, color: "#17376a" }}>
+    {globalBedMetrics.recoverable12h || 0}
+  </strong>
+</div>
+
+<div style={kpiCard(false, true, "watch")}>
+  <span style={kpiEyebrow}>Récupérables &lt; 24h</span>
+  <strong style={{ fontSize: 28, color: "#6d28d9" }}>
+    {globalBedMetrics.recoverable24h || 0}
+  </strong>
+
+</div>
+
+
+
+<div style={kpiCard(false, true, "watch")}>
+<span style={kpiEyebrow}>Charge bio-nettoyage</span>
 <strong style={{ fontSize: 28, color: "#a16207" }}>
-{globalBedMetrics.recoverable48h}
+{globalBedMetrics.bioCleaningLoad}
 </strong>
 </div>
 
@@ -2330,8 +3816,16 @@ gap: 10,
 {globalBedMetrics.forecastBlockages48h}
 </strong>
 </div>
+
+
+
 </div>
 </section>
+
+
+
+
+
 
 {filteredBedServices.map((serviceItem) => (
 <section
@@ -2365,8 +3859,28 @@ flexWrap: "wrap",
 <span style={statusBadgeStyle("blue")}>
 {serviceItem.metrics.reservedBeds} entrée(s) programmée(s)
 </span>
+<span style={statusBadgeStyle("red")}>
+  {serviceItem.metrics.recoverable2h || 0} &lt; 2h
+</span>
+
 <span style={statusBadgeStyle("amber")}>
-{serviceItem.metrics.recoverable48h} récupérable(s) &lt; 48h
+  {serviceItem.metrics.recoverable4h || 0} &lt; 4h
+</span>
+
+<span style={statusBadgeStyle("amber")}>
+  {serviceItem.metrics.recoverable6h || 0} &lt; 6h
+</span>
+
+<span style={statusBadgeStyle("blue")}>
+  {serviceItem.metrics.recoverable12h || 0} &lt; 12h
+</span>
+
+<span style={statusBadgeStyle("purple")}>
+  {serviceItem.metrics.recoverable24h || 0} &lt; 24h
+</span>
+
+<span style={statusBadgeStyle("amber")}>
+  {serviceItem.metrics.recoverable48h || 0} &lt; 48h
 </span>
 </div>
 </div>
@@ -2379,125 +3893,261 @@ gap: 6,
 }}
 >
 {safeArray(serviceItem.rooms).flatMap((room) =>
-safeArray(room.beds).map((bed) => {
-const key = getPatientBedMapKey(room.roomNumber, bed.label);
-const linkedPatient = patientBedMap[key];
-const bedState = bedStates[bed.bedId] || {};
-const status = getBedComputedStatus(bedState, linkedPatient);
-const shortLabel = getBedShortLabel(bed.label, room.roomType);
-
-return (
-<button
-key={bed.bedId}
-type="button"
-onClick={() =>
-openBedEditor({
-bedId: bed.bedId,
-serviceCode: serviceItem.serviceCode,
-serviceLabel: serviceItem.serviceLabel,
-roomNumber: room.roomNumber,
-roomType: room.roomType,
-bedLabel: bed.label,
-linkedPatient,
-})
+  safeArray(room.beds).map((bed) => {
+    const key = getPatientBedMapKey(room.roomNumber, bed.label);
+    const linkedPatient = patientBedMap[key];
+    if (linkedPatient?.nom === "Martin" && linkedPatient?.prenom === "Paul") {
+console.log("MARTIN PAUL", linkedPatient);
 }
-style={{
-border: "1px solid #e2e8f0",
-borderRadius: 10,
-padding: 8,
-minHeight: 92,
-cursor: "pointer",
-textAlign: "left",
-background:
-status === BED_STATUSES.BLOCKED
-? "#fff7f7"
-: status === BED_STATUSES.RESERVED
-? "#eef4ff"
-: status === BED_STATUSES.ISOLATION
-? "#f5f3ff"
-: status === BED_STATUSES.AVAILABLE
-? "#f7fcf8"
-: "#f8fafc",
-borderColor:
-status === BED_STATUSES.BLOCKED
-? "#f1b3aa"
-: status === BED_STATUSES.RESERVED
-? "#cfe0ff"
-: status === BED_STATUSES.ISOLATION
-? "#ddd6fe"
-: status === BED_STATUSES.AVAILABLE
-? "#cdebd8"
-: "#e2e8f0",
-}}
-title={`Chambre ${room.roomNumber}${
-shortLabel ? ` · ${shortLabel}` : ""
-}`}
->
-<div style={{ display: "grid", gap: 3 }}>
-<strong
-style={{
-color: "#17376a",
-fontSize: 12,
-lineHeight: 1.1,
-}}
->
+    const bedState = bedStates[bed.bedId] || {};
+    const status = getBedComputedStatus(bedState, linkedPatient);
+    const shortLabel = getBedShortLabel(bed.label, room.roomType);
+
+    const recovery = linkedPatient
+      ? buildBedRecovery(linkedPatient, { bedId: bed.bedId }, settings?.bioCleaning)
+      : null;
+
+    const isFree = !linkedPatient;
+    const isCommitted = recovery?.recoverableStatus === "committed";
+    const patient = linkedPatient;
+
+const los = patient ? getLengthOfStay(patient) : null;
+const targetDate = patient
+? patient.dateSortiePrevue || patient.targetDate
+: null;
+
+const cleaningType = patient ? getCleaningType(patient) : null;
+const cleaningDuration =
+cleaningType === "RENFORCÉ"
+? "45 min"
+: cleaningType === "ISO AIR" ||
+cleaningType === "ISO CONTACT" ||
+cleaningType === "ISO GOUT"
+? "60 min"
+: "30 min";
+
+    const isForecast = recovery?.recoverableStatus === "forecast";
+    const isValidated = recovery?.context?.dischargeValidated;
+    const isRecoverable = isCommitted || isForecast;
+
+    const when =
+  recovery?.recoverableCommittedAt ||
+  recovery?.confirmedAvailableAt;
+
+    const diffMinutes = when
+      ? Math.round((new Date(when).getTime() - Date.now()) / 60000)
+      : null;
+
+    const isUrgent =
+      diffMinutes !== null &&
+      diffMinutes >= 0 &&
+      diffMinutes <= 120 &&
+      isRecoverable;
+
+    const badgeColor = isFree
+      ? "green"
+      : isCommitted && isValidated
+      ? "green"
+      : isCommitted
+      ? "green"
+      : isForecast
+      ? "amber"
+      : status === BED_STATUSES.BLOCKED
+      ? "red"
+      : status === BED_STATUSES.RESERVED
+      ? "blue"
+      : "neutral";
+
+    const badgeLabel = isFree
+      ? "Disponible"
+      : isCommitted && isValidated
+      ? "Sortie validée"
+      : isCommitted
+      ? "Bientôt dispo"
+      : isForecast
+      ? "Sortie prévue"
+      : status === BED_STATUSES.BLOCKED
+      ? "Bloqué"
+      : status === BED_STATUSES.RESERVED
+      ? "Entrée prévue"
+      : "Occupé";
+
+    const cardBackground =
+      status === BED_STATUSES.BLOCKED
+        ? "#fff7f7"
+        : status === BED_STATUSES.RESERVED
+        ? "#eef4ff"
+        : isFree
+        ? "#f7fcf8"
+        : isCommitted
+        ? "#f0fdf4"
+        : isForecast
+        ? "#fff7ed"
+        : "#f8fafc";
+
+    const cardBorderColor =
+      isUrgent
+        ? "#f59e0b"
+        : status === BED_STATUSES.BLOCKED
+        ? "#f1b3aa"
+        : status === BED_STATUSES.RESERVED
+        ? "#cfe0ff"
+        : isFree
+        ? "#cdebd8"
+        : isCommitted
+        ? "#bbf7d0"
+        : isForecast
+        ? "#fed7aa"
+        : "#e2e8f0";
+
+    const cleaningMinutes = recovery?.estimatedMinutes || 0;
+
+    const hygieneLabel =
+      recovery?.cleaningType === "isolement"
+        ? "Précautions hygiène"
+        : CLEANING_TYPES[recovery?.cleaningType]?.label || "Standard";
+
+    const patientFullName = linkedPatient
+      ? `${linkedPatient.nom || ""} ${linkedPatient.prenom || ""}`.trim()
+      : "";
+
+    return (
+      <button
+        key={bed.bedId}
+        type="button"
+        onClick={() =>
+          openBedEditor({
+            bedId: bed.bedId,
+            serviceCode: serviceItem.serviceCode,
+            serviceLabel: serviceItem.serviceLabel,
+            roomNumber: room.roomNumber,
+            roomType: room.roomType,
+            bedLabel: bed.label,
+            linkedPatient,
+          })
+        }
+        style={{
+          border: `1px solid ${cardBorderColor}`,
+          borderRadius: 12,
+          padding: 10,
+          minHeight: 118,
+          cursor: "pointer",
+          textAlign: "left",
+          background: cardBackground,
+          boxShadow: isUrgent
+            ? "0 0 0 2px rgba(245,158,11,.35), 0 8px 18px rgba(161,98,7,.12)"
+            : isRecoverable
+            ? "0 6px 16px rgba(161,98,7,.08)"
+            : "0 3px 10px rgba(15,23,42,.03)",
+        }}
+        title={`Chambre ${room.roomNumber}${shortLabel ? ` · ${shortLabel}` : ""}`}
+      >
+       <div style={{ display: "grid", gap: 4 }}>
+<div style={{ fontWeight: 700, fontSize: 13 }}>
 {room.roomNumber}
 {shortLabel}
-</strong>
+</div>
 
-<span
-style={{
-...statusBadgeStyle(getBedStatusColor(status)),
-minHeight: 18,
-fontSize: 9,
-padding: "0 5px",
-width: "fit-content",
-}}
->
-{getBedStatusLabel(status)}
-</span>
 
 {linkedPatient ? (
-<div
-style={{
-fontSize: 9,
-color: "#334155",
-lineHeight: 1.1,
-display: "-webkit-box",
-WebkitLineClamp: 2,
-WebkitBoxOrient: "vertical",
-overflow: "hidden",
-}}
->
-{linkedPatient.nom}
+<>
+<div style={{ fontWeight: 600, fontSize: 12 }}>
+{linkedPatient.nom} {linkedPatient.prenom}
 </div>
-) : null}
 
-{!linkedPatient && bedState?.reason ? (
-<div
-style={{
-fontSize: 9,
-color: "#64748b",
-lineHeight: 1.1,
-display: "-webkit-box",
-WebkitLineClamp: 2,
-WebkitBoxOrient: "vertical",
-overflow: "hidden",
-}}
->
-{getBedReasonLabel(bedState.reason)}
+<div style={{ fontSize: 11, color: "#475569" }}>
+  {getLengthOfStay(linkedPatient) !== null ? (
+    <div style={{ fontSize: 11, color: "#475569" }}>
+      J+{getLengthOfStay(linkedPatient)}
+    </div>
+  ) : null}
+
+  {getBedExitLabel(linkedPatient) ? (
+    <> · {getBedExitLabel(linkedPatient)}</>
+  ) : null}
+
+    {isMedicalReady(linkedPatient) && (
+    <div
+      style={{
+        fontSize: 11,
+        color: "#b91c1c",
+        fontWeight: 800,
+        marginTop: 2,
+      }}
+    >
+      {getAvoidableDays(linkedPatient)} j évitable
+    </div>
+  )}
 </div>
-) : null}
+
+
+<div style={{ fontSize: 11, color: "#334155" }}>
+🧼 {getCleaningType(linkedPatient) || "Standard"} ·{" "}
+{getCleaningType(linkedPatient) === "RENFORCÉ"
+? "45 min"
+: getCleaningType(linkedPatient)?.startsWith("ISO")
+? "60 min"
+: "30 min"}
 </div>
-</button>
-);
-})
+      {when ? (
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 800,
+            color: isRecoverable ? "#a16207" : "#64748b",
+          }}
+        >
+          🕒 Dispo chambre {formatDayAndTime(when)}
+        </div>
+      ) : null}
+</>
+
+) : (
+<div style={{ display: "grid", gap: 2 }}>
+  <div
+    style={{
+      fontSize: 11,
+      fontWeight: 700,
+      color:
+        status === BED_STATUSES.AVAILABLE
+          ? "#16a34a"
+          : status === BED_STATUSES.RESERVED
+          ? "#1d4ed8"
+          : status === BED_STATUSES.BLOCKED
+          ? "#b42318"
+          : "#64748b",
+    }}
+  >
+    {getBedStatusLabel(status)}
+  </div>
+
+  {bedState?.startAt && bedState?.endAt ? (
+    <div style={{ fontSize: 10, color: "#64748b" }}>
+      {status === BED_STATUSES.BLOCKED
+        ? `du ${formatShortDateTime(bedState.startAt)} au ${formatShortDateTime(
+            bedState.endAt
+          )}`
+        : status === BED_STATUSES.RESERVED
+        ? `entrée le ${formatShortDateTime(bedState.startAt)}`
+        : ""}
+    </div>
+  ) : null}
+</div>
+)}
+</div>
+
+
+      </button>
+    );
+  })
 )}
 </div>
 </section>
 ))}
 </>
 ) : null}
+
+
 
 {mode !== "beds" ? (
 <section className="app-card" style={listCard}>
@@ -2542,11 +4192,16 @@ incident(s)
 </div>
 
 {items.map((patient) => {
+const pediatric = isPediatricPatient(patient)
+? getPediatricDecision(patient)
+: null;
+
 const newPatient = isNewPatient(
 patient,
 consultedIds,
 highlightPatientId
 );
+
 const medicallyReady = isMedicalReady(patient);
 const avoidableDays = getAvoidableDays(patient);
 const targetDate = getTargetDate(patient);
@@ -2554,25 +4209,51 @@ const targetStatus = getDateStatus(targetDate);
 const los = getLengthOfStay(patient);
 const cardTone = getPatientCardTone(patient, incidents);
 const vulnerable = isVulnerable(patient);
-const currentIncident = getCurrentIncident(patient, incidents);
-const previousIncident = hasPreviousEscapeIncident(
+
+const currentIncident = getCurrentIncident(
 patient,
 incidents
 );
 
+const previousIncident =
+hasPreviousEscapeIncident(
+patient,
+incidents
+);
+
+const riskLevel =
+getRiskLevel(patient, incidents) || {
+color: "neutral",
+label: "Risque non défini",
+};
+
 return (
+
 <article
 key={patient.id}
 style={{
 ...patientRowCard,
 ...cardTone,
-...(currentIncident
-? { border: "2px solid #f1b3aa" }
+
+// 🔴 PRIORITÉ VISUELLE RISQUE
+background:
+riskLevel.color === "red"
+? "#fff5f5"
+: riskLevel.color === "amber"
+? "#fffaf0"
+: "#fff",
+
+border:
+riskLevel.color === "red"
+? "2px solid #f1b3aa"
+: los >= 10 && !currentIncident
+? "2px solid #f1b3aa"
+: "1px solid #e5ebf4",
+
+...(medicallyReady
+? { background: "#f0f8ff" } // léger bleu sortie médicale
 : {}),
-...(los >= 10 && !currentIncident
-? { border: "2px solid #f1b3aa" }
-: {}),
-...(medicallyReady ? { background: "#f8fbff" } : {}),
+
 ...(newPatient
 ? {
 boxShadow:
@@ -2580,6 +4261,7 @@ boxShadow:
 }
 : {}),
 }}
+
 >
 <div
 style={{ display: "grid", gap: 4, position: "relative" }}
@@ -2796,16 +4478,29 @@ Date cible{" "}
 : "non définie"}{" "}
 · {targetStatus.label}
 </span>
-{avoidableDays > 0 ? (
-<span style={avoidableHighlight}>
-{avoidableDays} j évitables
+{isMedicalReady(patient) && getBedAvailableAt(patient) ? (
+<span style={statusBadgeStyle("green")}>
+Lit dispo ~ {formatShortTime(getBedAvailableAt(patient))}
 </span>
+) : null}
+{isMedicalReady(patient) ? (
+  <span style={avoidableHighlight}>
+    {avoidableDays} j évitable{avoidableDays > 1 ? "s" : ""}
+  </span>
 ) : null}
 </div>
 </div>
 
 <div
 style={{ display: "grid", gap: 6, justifyItems: "end" }}
+>
+
+<div
+style={{
+display: "grid",
+gap: 8,
+justifyItems: "end",
+}}
 >
 <div style={compactActionRow}>
 <button
@@ -2816,6 +4511,7 @@ onClick={() => openPatient(patient.id, "copilote")}
 >
 Copilote
 </button>
+
 <button
 type="button"
 className="app-btn app-btn-ghost"
@@ -2824,6 +4520,7 @@ onClick={() => openPatient(patient.id, "patient")}
 >
 Patient
 </button>
+
 <button
 type="button"
 className="app-btn app-btn-ghost"
@@ -2832,6 +4529,7 @@ onClick={() => openPatient(patient.id, "staff")}
 >
 Staff
 </button>
+
 <button
 type="button"
 className="app-btn app-btn-ghost"
@@ -2842,31 +4540,78 @@ onClick={() => triggerIncident(patient)}
 </button>
 </div>
 
+<div
+style={{
+display: "flex",
+gap: 12,
+alignItems: "center",
+padding: "6px 10px",
+border: "1px solid #e2e8f0",
+borderRadius: 12,
+background: "#f8fafc",
+}}
+>
+
+
 <button
 type="button"
-style={{
-...medicalToggleButton,
-...(medicallyReady ? medicalToggleButtonOn : {}),
-}}
 onClick={() => toggleMedicalReady(patient)}
+style={miniStatusButton(medicallyReady)}
 >
-<span style={medicalToggleLabel}>Sort Med</span>
+<span>SM</span>
+<span style={miniInlineSwitch(medicallyReady, "#3b82f6")}>
+<span style={miniInlineKnob(medicallyReady)} />
+</span>
+</button>
+
+<button
+type="button"
+onClick={() =>
+updateInfectionRisk(patient, {
+isolation: !(patient?.infectionRisk?.isolation || false),
+})
+}
+style={miniStatusButton(patient?.infectionRisk?.isolation)}
+>
+<span>PRECO</span>
 <span
-style={{
-...miniSwitch,
-...(medicallyReady ? miniSwitchOn : {}),
-}}
+style={miniInlineSwitch(
+patient?.infectionRisk?.isolation,
+"#ef4444"
+)}
 >
 <span
-style={{
-...miniSwitchKnob,
-transform: medicallyReady
-? "translateX(16px)"
-: "translateX(0)",
-}}
+style={miniInlineKnob(patient?.infectionRisk?.isolation)}
 />
 </span>
 </button>
+
+<button
+type="button"
+onClick={() =>
+updateInfectionRisk(patient, {
+hygieneRisk: !(patient?.infectionRisk?.hygieneRisk || false),
+})
+}
+style={miniStatusButton(patient?.infectionRisk?.hygieneRisk)}
+>
+<span>RI</span>
+<span
+style={miniInlineSwitch(
+patient?.infectionRisk?.hygieneRisk,
+"#f59e0b"
+)}
+>
+<span
+style={miniInlineKnob(patient?.infectionRisk?.hygieneRisk)}
+/>
+</span>
+</button>
+</div>
+</div>
+
+
+
 </div>
 </article>
 );
@@ -2878,6 +4623,8 @@ transform: medicallyReady
 ) : null}
 </>
 )}
+
+
 </div>
 
 {vulnerabilityModalPatient ? (
@@ -2925,6 +4672,9 @@ Critères de vulnérabilité
 
 {vulnerabilityList.map((item) => {
 const checked = vulnerabilityForm.criteria.includes(item);
+
+
+
 
 return (
 <label
@@ -3257,7 +5007,42 @@ style={popoverCloseBtn}
 ×
 </button>
 </div>
+{selectedBedMeta?.linkedPatient ? (
+  <div
+    style={{
+      display: "grid",
+      gap: 10,
+      padding: 12,
+      borderRadius: 14,
+      background: "#f8fbff",
+      border: "1px solid #dbe7f5",
+    }}
+  >
+    <strong style={{ color: "#17376a" }}>Infos lit occupé</strong>
 
+    <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
+      <div>
+        <strong>Patient :</strong>{" "}
+        {selectedBedMeta.linkedPatient.nom} {selectedBedMeta.linkedPatient.prenom}
+      </div>
+
+      <div>
+        <strong>Sortie prévue :</strong>{" "}
+        {getBedExitLabel(selectedBedMeta.linkedPatient) || "Non renseignée"}
+      </div>
+
+      <div>
+        <strong>Bio-nettoyage :</strong>{" "}
+        {getCleaningType(selectedBedMeta.linkedPatient)} ·{" "}
+        {getCleaningType(selectedBedMeta.linkedPatient) === "RENFORCÉ"
+          ? "45 min"
+          : getCleaningType(selectedBedMeta.linkedPatient)?.startsWith("ISO")
+          ? "60 min"
+          : "30 min"}
+      </div>
+    </div>
+  </div>
+) : null}
 <div
 style={{
 display: "grid",
@@ -3265,6 +5050,52 @@ gridTemplateColumns: "1fr 1fr",
 gap: 12,
 }}
 >
+{!selectedBedMeta?.linkedPatient ? (
+  <div
+    style={{
+      display: "grid",
+      gap: 10,
+      padding: 12,
+      borderRadius: 14,
+      background: "#f8fafc",
+      border: "1px solid #e2e8f0",
+    }}
+  >
+    <strong style={{ color: "#17376a" }}>État du lit</strong>
+
+    <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
+      <div>
+        <strong>Statut :</strong>{" "}
+        {getBedStatusLabel(bedStates[selectedBedMeta.bedId]?.status)}
+      </div>
+
+      <div>
+        <strong>Motif :</strong>{" "}
+        {getBedReasonLabel(bedStates[selectedBedMeta.bedId]?.reason) || "Aucun"}
+      </div>
+
+      <div>
+        <strong>Période :</strong>{" "}
+        {bedStates[selectedBedMeta.bedId]?.startAt
+          ? `${formatDateTimeDisplay(
+              bedStates[selectedBedMeta.bedId]?.startAt
+            )} → ${formatDateTimeDisplay(
+              bedStates[selectedBedMeta.bedId]?.endAt
+            )}`
+          : "Non définie"}
+      </div>
+
+      <div style={{ fontWeight: 600, color: "#16a34a" }}>
+        {bedStates[selectedBedMeta.bedId]?.status === "AVAILABLE"
+          ? "🟢 Lit immédiatement mobilisable"
+          : "🔴 Lit indisponible"}
+      </div>
+    </div>
+  </div>
+) : null}
+
+
+
 <div style={bedFormField}>
 <label style={bedFormLabel}>Motif</label>
 <select

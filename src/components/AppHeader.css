@@ -195,5 +195,43 @@
   .cb-header-right {
     width: 100%;
   }
+  .app-chip.blue {
+font-weight: 700;
+border-radius: 999px;
+transition: all 0.15s ease;
+}
+
+.app-chip:hover {
+transform: translateY(-1px);
+}
+
+.kpi-card,
+.metric-card,
+.card {
+transition: all 0.2s ease;
+}
+
+.kpi-card:hover,
+.metric-card:hover,
+.card:hover {
+box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+.view-header {
+display: flex;
+justify-content: space-between;
+align-items: center;
+gap: 12px;
+width: 100%;
+}
+
+.view-tabs {
+display: flex;
+gap: 6px;
+flex-wrap: wrap;
+}
+
+.view-reset {
+margin-left: auto;
+}
 }
 
