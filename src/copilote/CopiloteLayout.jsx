@@ -3958,7 +3958,7 @@ COPILOT TOP
     <div>
       <div style={styles.infoLabel}>Vue globale</div>
       <div style={styles.copilotHeroTitle}>
-        {currentSolution || state.selectedOrientation || "Orientation à définir"}
+        {state.selectedOrientation || currentSolution || "Orientation à définir"}
       </div>
       <div style={styles.smallNote}>
         {quickSummary.sentence || "Lecture rapide de la situation actuelle."}
@@ -4126,12 +4126,12 @@ new Date(patient.dateSortantMedicalement).getTime()) /
           <div style={styles.decisionHero}>
             <div style={styles.decisionHeroLabel}>Orientation retenue</div>
             <div style={styles.decisionHeroValue}>
-              {state.currentSolutionOverride ||
-                state.selectedOrientation ||
-                patient?.copilotSummary?.currentSolution ||
-                patient?.dischargePlanning?.solutionLabel ||
-                patient?.solutionLabel ||
-                "Non définie"}
+              {state.selectedOrientation ||
+state.currentSolutionOverride ||
+patient?.copilotSummary?.currentSolution ||
+patient?.dischargePlanning?.solutionLabel ||
+patient?.solutionLabel ||
+"Non définie"}
             </div>
           </div>
 
